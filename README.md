@@ -111,12 +111,45 @@ graph LR
 # Clone the repository
 git clone https://github.com/yourusername/Panda_Dive.git
 cd Panda_Dive
+```
+
+#### Linux/macOS
+
+```bash
+# Create virtual environment with uv
+uv venv
+source .venv/bin/activate
+
+# Install dependencies
+uv sync
+```
+
+#### Windows
+
+```bash
+# Create virtual environment
+python -m venv venv
+.\venv\Scripts\Activate
+
+# Install uv and dependencies
+pip install uv
+uv pip install -r pyproject.toml
+```
+
+#### Alternative: Using pip directly
+
+```bash
+# Create virtual environment
+python -m venv .venv
+
+# Activate (Linux/macOS: source .venv/bin/activate, Windows: .venv\Scripts\activate)
+source .venv/bin/activate
 
 # Install in editable mode
 pip install -e .
 ```
 
-### Development setup
+#### Development setup
 
 ```bash
 # Install with development dependencies
@@ -128,7 +161,11 @@ pip install -e ".[dev]"
 Copy the example environment file and configure your API keys:
 
 ```bash
+# Linux/macOS
 cp .env.example .env
+
+# Windows
+copy .env.example .env
 ```
 
 Edit `.env` with your credentials:
