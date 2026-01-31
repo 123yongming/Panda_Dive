@@ -50,3 +50,7 @@ build/
 ehthumbs.db
 Thumbs.db
 *.log
+
+# LangGraph & Tools
+.langgraph_api/
+.sisyphus/
