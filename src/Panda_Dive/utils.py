@@ -37,29 +37,29 @@ from .state import ResearchComplete, Summary
 ######
 def get_init_chat_model_params(model_name: str) -> dict:
     """根据模型名称获取 init_chat_model 需要的额外参数
-        
+
     Args:
         model_name: 模型名称
-            
+
     Returns:
         包含额外参数的字典，如 model_provider, base_url 等
     """
     model_name = model_name.lower()
     params = {}
-    
+
     if model_name.startswith("ark"):
         params["model_provider"] = "openai"
         params["base_url"] = "https://ark.cn-beijing.volces.com/api/coding/v3"
-    
+
     return params
 
 
 def supports_structured_output(model_name: str) -> bool:
     """检查模型是否支持 structured output
-        
+
     Args:
         model_name: 模型名称
-            
+
     Returns:
         是否支持 structured output
     """
@@ -74,16 +74,17 @@ def create_chat_model(
     model_name: str,
     max_tokens: int,
     api_key: str,
-    tags: list[str] | None = None
+    tags: list[str] | None = None,
+    streaming: bool = False,
 ) -> BaseChatModel:
     """创建聊天模型实例，支持 ark 等需要特殊参数的模型
-        
+
     Args:
         model_name: 模型名称
         max_tokens: 最大 token 数
         api_key: API 密钥
         tags: 标签列表
-            
+
     Returns:
         初始化好的聊天模型实例
     """
@@ -92,16 +93,17 @@ def create_chat_model(
         "model": model_name,
         "max_tokens": max_tokens,
         "api_key": api_key,
-        **model_params
+        **model_params,
     }
-    
+
     if tags:
         init_params["tags"] = tags
-    
+    init_params["streaming"] = streaming
+
     logging.info(f"Creating chat model: {model_name}")
     logging.info(f"API Key: {api_key[:10] if api_key else 'None'}...")
     logging.info(f"Model params: {model_params}")
-    
+
     return init_chat_model(**init_params)
 
 
@@ -112,12 +114,16 @@ TAVILY_SEARCH_DESCRIPTION = (
     "A search engine optimized for comprehensive, accurate, and trusted results. "
     "Useful for when you need to answer questions about current events."
 )
+
+
 @tool(description=TAVILY_SEARCH_DESCRIPTION)
 async def tavily_search(
     queries: List[str],
     max_results: Annotated[int, InjectedToolArg] = 5,
-    topic: Annotated[Literal["general", "news", "finance"], InjectedToolArg] = "general",
-    config: RunnableConfig = None
+    topic: Annotated[
+        Literal["general", "news", "finance"], InjectedToolArg
+    ] = "general",
+    config: RunnableConfig = None,
 ) -> str:
     """Fetch and summarize search results from Tavily search API.
 
@@ -136,15 +142,18 @@ async def tavily_search(
         max_results=max_results,
         topic=topic,
         include_raw_content=True,
-        config=config
+        config=config,
     )
     # 2、搜索结果去重
     unique_results = {}
     for response in search_results:
         for result in response["results"]:
-            url = result['url']
+            url = result["url"]
             if url not in unique_results:
-                unique_results[url] = {**result, "query": response['query']} # 根据query可以信息溯源
+                unique_results[url] = {
+                    **result,
+                    "query": response["query"],
+                }  # 根据query可以信息溯源
     # 3、设置summary model
     configurable = Configuration.from_runnable_config(config)
     max_char_to_include = configurable.max_content_length
@@ -153,9 +162,9 @@ async def tavily_search(
         model_name=configurable.summarization_model,
         max_tokens=configurable.summarization_model_max_tokens,
         api_key=model_api_key,
-        tags=["langsmith:nostream"]
+        tags=["langsmith:nostream"],
     )
-    
+
     # 检查是否支持 structured output
     if supports_structured_output(configurable.summarization_model):
         summarization_model = model.with_structured_output(Summary).with_retry(
@@ -165,15 +174,18 @@ async def tavily_search(
         summarization_model = model.with_retry(
             stop_after_attempt=configurable.max_structured_output_retries
         )
+
     # 4、生成summary
     async def noop():
         return None
+
     summarization_tasks = [
-        noop() if not result.get("raw_content")
+        noop()
+        if not result.get("raw_content")
         else summarize_webpage(
             summarization_model,
-            result['raw_content'][:max_char_to_include],
-            configurable.summarization_model
+            result["raw_content"][:max_char_to_include],
+            configurable.summarization_model,
         )
         for result in unique_results.values()
     ]
@@ -182,13 +194,11 @@ async def tavily_search(
     # 6、合并summary与result
     summarized_results = {
         url: {
-            'title': result['title'],
-            'content': result['content'] if summary is None else summary
+            "title": result["title"],
+            "content": result["content"] if summary is None else summary,
         }
         for url, result, summary in zip(
-            unique_results.keys(),
-            unique_results.values(),
-            summaries
+            unique_results.keys(), unique_results.values(), summaries
         )
     }
     # 7、输出格式消息
@@ -196,21 +206,20 @@ async def tavily_search(
         return "No valid search results found. Please try different search queries or use a different search API."
     formatted_output = "Search results: \n\n"
     for i, (url, result) in enumerate(summarized_results.items()):
-        formatted_output += f"\n\n--- SOURCE {i+1}: {result['title']} ---\n"
+        formatted_output += f"\n\n--- SOURCE {i + 1}: {result['title']} ---\n"
         formatted_output += f"URL: {url}\n\n"
         formatted_output += f"SUMMARY:\n{result['content']}\n\n"
         formatted_output += "\n\n" + "-" * 80 + "\n"
-    
+
     return formatted_output
-    
 
 
 async def tavily_search_async(
     search_queries,
     max_results: int = 5,
-    topic: Literal["general", "news", "finance"] = "general", 
+    topic: Literal["general", "news", "finance"] = "general",
     include_raw_content: bool = True,
-    config: RunnableConfig = None
+    config: RunnableConfig = None,
 ):
     """异步执行多个搜索查询
     Args:
@@ -226,7 +235,7 @@ async def tavily_search_async(
             query,
             max_results=max_results,
             include_raw_content=include_raw_content,
-            topic=topic
+            topic=topic,
         )
         for query in search_queries
     ]
@@ -237,8 +246,7 @@ async def tavily_search_async(
 
 # TODO 考虑去除Open Agent Platform 生产部署
 def get_tavily_api_key(config: RunnableConfig):
-    """从RunnableConfig中获取tavily api key
-    """
+    """从RunnableConfig中获取tavily api key"""
     should_get_from_config = os.getenv("GET_API_KEYS_FROM_CONFIG", False)
     if should_get_from_config.lower() == "true":
         # Open Agent Platform 生产部署
@@ -252,8 +260,7 @@ def get_tavily_api_key(config: RunnableConfig):
 
 
 def get_api_key_for_model(model_name: str, config: RunnableConfig):
-    """从env或者Config中获取指定模型的api key
-    """
+    """从env或者Config中获取指定模型的api key"""
     should_get_from_config = os.getenv("GET_API_KEYS_FROM_CONFIG", False)
     model_name = model_name.lower()
     if should_get_from_config.lower() == "true":
@@ -276,13 +283,14 @@ def get_api_key_for_model(model_name: str, config: RunnableConfig):
 
 
 def get_today_str() -> str:
-    """获取当前日期字符串'Mon Jan 15, 2024'
-    """
+    """获取当前日期字符串'Mon Jan 15, 2024'"""
     now = datetime.now()
     return f"{now:%a} {now:%b} {now.day}, {now:%Y}"
 
 
-async def summarize_webpage(model: BaseChatModel, webpage_content: str, model_name: str = None) -> str:
+async def summarize_webpage(
+    model: BaseChatModel, webpage_content: str, model_name: str = None
+) -> str:
     """异步生成网页摘要
     Args:
         model: 摘要模型
@@ -293,20 +301,21 @@ async def summarize_webpage(model: BaseChatModel, webpage_content: str, model_na
     """
     try:
         prompt_content = summarize_webpage_prompt.format(
-            webpage_content=webpage_content,
-            date=get_today_str()
+            webpage_content=webpage_content, date=get_today_str()
         )
         summary = await asyncio.wait_for(
-            model.ainvoke([HumanMessage(content=prompt_content)]),
-            timeout=60.0
+            model.ainvoke([HumanMessage(content=prompt_content)]), timeout=60.0
         )
-        
+
         # 检查是否支持 structured output
         if model_name and not supports_structured_output(model_name):
             # 不支持 structured output 的模型，解析 JSON 响应
             import json
+
             try:
-                response_text = summary.content if hasattr(summary, 'content') else str(summary)
+                response_text = (
+                    summary.content if hasattr(summary, "content") else str(summary)
+                )
                 parsed = json.loads(response_text)
                 formatted_summary = (
                     f"<summary>\n{parsed.get('summary', response_text)}\n</summary>\n\n"
@@ -315,7 +324,11 @@ async def summarize_webpage(model: BaseChatModel, webpage_content: str, model_na
                 return formatted_summary
             except json.JSONDecodeError:
                 # JSON 解析失败，直接使用响应文本
-                return str(summary.content) if hasattr(summary, 'content') else str(summary)
+                return (
+                    str(summary.content)
+                    if hasattr(summary, "content")
+                    else str(summary)
+                )
         else:
             # 支持 structured output 的模型，直接使用响应
             formatted_summary = (
@@ -325,11 +338,16 @@ async def summarize_webpage(model: BaseChatModel, webpage_content: str, model_na
             return formatted_summary
     except asyncio.TimeoutError:
         # 超时报错
-        logging.warning("Summarization timed out after 60 seconds, returning original content")
+        logging.warning(
+            "Summarization timed out after 60 seconds, returning original content"
+        )
         return webpage_content
     except Exception as e:
-        logging.warning(f"Summarization failed with error: {str(e)}, returning original content")
+        logging.warning(
+            f"Summarization failed with error: {str(e)}, returning original content"
+        )
         return webpage_content
+
 
 ######
 # Reflection Tool
@@ -389,7 +407,9 @@ async def get_mcp_access_token(
         async with aiohttp.ClientSession() as session:
             token_url = base_mcp_url.rstrip("/") + "/oauth/token"
             headers = {"Content-Type": "application/x-www-form-urlencoded"}
-            async with session.post(token_url, headers=headers, data=form_data) as response:
+            async with session.post(
+                token_url, headers=headers, data=form_data
+            ) as response:
                 if response.status == 200:
                     # Successfully obtained token
                     token_data = await response.json()
@@ -421,10 +441,10 @@ async def get_tokens(config: RunnableConfig):
     if not tokens:
         return None
     # 判断是否过期
-    expires_in = tokens.value.get("expires_in") # 过期时长
+    expires_in = tokens.value.get("expires_in")  # 过期时长
     created_at = tokens.created_at  # 创建时间
-    current_time = datetime.now(timezone.utc) # 当前时间
-    expiration_time = created_at + timedelta(seconds=expires_in) # 过期时间点
+    current_time = datetime.now(timezone.utc)  # 当前时间
+    expiration_time = created_at + timedelta(seconds=expires_in)  # 过期时间点
     if current_time > expiration_time:
         await store.adelete((user_id, "tokens"), "data")
         return None
@@ -473,21 +493,20 @@ async def fetch_tokens(config: RunnableConfig) -> dict[str, Any]:
 
 
 def wrap_mcp_authenticate_tool(tool: StructuredTool) -> StructuredTool:
-    """包装MCP认证工具，添加错误处理和用户友好的错误消息
-    """
+    """包装MCP认证工具，添加错误处理和用户友好的错误消息"""
     original_coroutine = tool.coroutine
-    
+
     async def authentication_wrapper(**kwargs):
-        
         def _find_mcp_error_in_exception_chain(exc: BaseException) -> McpError | None:
             """递归搜索异常链中的MCP错误"""
             if isinstance(exc, McpError):
                 return exc
-            if hasattr(exc, 'exceptions'):
+            if hasattr(exc, "exceptions"):
                 for sub_exception in exc.exceptions:
                     if found_error := _find_mcp_error_in_exception_chain(sub_exception):
                         return found_error
             return None
+
         try:
             return await original_coroutine(**kwargs)
         except BaseException as original_error:
@@ -506,13 +525,13 @@ def wrap_mcp_authenticate_tool(tool: StructuredTool) -> StructuredTool:
                     error_message = f"{error_message} {url}"
                 raise ToolException(error_message) from original_error
             raise original_error
+
     tool.coroutine = authentication_wrapper
     return tool
 
 
 async def load_mcp_tools(
-    config: RunnableConfig,
-    existing_tool_names: set[str]
+    config: RunnableConfig, existing_tool_names: set[str]
 ) -> list[BaseTool]:
     """加载MCP工具
     Args:
@@ -529,10 +548,10 @@ async def load_mcp_tools(
         mcp_tokens = None
     # 2、验证 MCP 配置
     config_valid = (
-        configurable.mcp_config and 
-        configurable.mcp_config.url and 
-        configurable.mcp_config.tools and 
-        (mcp_tokens or not configurable.mcp_config.auth_required)
+        configurable.mcp_config
+        and configurable.mcp_config.url
+        and configurable.mcp_config.tools
+        and (mcp_tokens or not configurable.mcp_config.auth_required)
     )
     if not config_valid:
         return []
@@ -545,7 +564,7 @@ async def load_mcp_tools(
         "server_1": {
             "url": server_url,
             "headers": auth_headers,
-            "transport": "streamable_http"
+            "transport": "streamable_http",
         }
     }
     # 4、加载工具
@@ -567,31 +586,29 @@ async def load_mcp_tools(
         enhanced_tool = wrap_mcp_authenticate_tool(mcp_tool)
         configured_tools.append(enhanced_tool)
     return configured_tools
-    
+
 
 ######
 # Search Tool
 ######
 async def get_search_tool(search_api: SearchAPI):
-    """获取搜索工具
-    """
+    """获取搜索工具"""
     if search_api == SearchAPI.TAVILY:
         search_tool = tavily_search
         search_tool.metadata = {
-            **(search_tool.metadata or {}), 
-            "type": "search", 
-            "name": "web_search"
+            **(search_tool.metadata or {}),
+            "type": "search",
+            "name": "web_search",
         }
         return [search_tool]
     elif search_api == SearchAPI.NONE:
-        return []  
+        return []
     # fallback策略
     return []
 
 
 async def get_all_tools(config: RunnableConfig) -> list[BaseTool]:
-    """获取所有工具
-    """
+    """获取所有工具"""
     # 核心 research tool
     tools = [tool(ResearchComplete), think_tool]
     # search tool
@@ -601,7 +618,7 @@ async def get_all_tools(config: RunnableConfig) -> list[BaseTool]:
     tools.extend(search_tools)
     # 防止冲突过滤
     existing_tool_names = {
-        tool.name if hasattr(tool, "name") else tool.get("name", "web_search") 
+        tool.name if hasattr(tool, "name") else tool.get("name", "web_search")
         for tool in tools
     }
     # mcp tool
@@ -611,8 +628,7 @@ async def get_all_tools(config: RunnableConfig) -> list[BaseTool]:
 
 
 def get_config_value(value):
-    """获取配置值，处理枚举类型和None值
-    """
+    """获取配置值，处理枚举类型和None值"""
     if value is None:
         return None
     if isinstance(value, str):
@@ -624,9 +640,10 @@ def get_config_value(value):
 
 
 def get_notes_from_tool_calls(messages: list[MessageLikeRepresentation]):
-    """从消息列表中提取所有工具调用消息的内容
-    """
-    return [tool_msg.content for tool_msg in filter_messages(messages, include_types="tool")]
+    """从消息列表中提取所有工具调用消息的内容"""
+    return [
+        tool_msg.content for tool_msg in filter_messages(messages, include_types="tool")
+    ]
 
 
 ######
@@ -634,52 +651,58 @@ def get_notes_from_tool_calls(messages: list[MessageLikeRepresentation]):
 ######
 # TODO 补充具有搜索功能的模型
 
+
 def anthropic_websearch_called(response):
     return False
 
+
 def openai_websearch_called(response):
     return False
+
 
 ######
 # Token Limit Exceeded Utils
 ######
 def is_token_limit_exceeded(exception: Exception, model_name: str = None) -> bool:
-    """判断异常是否因为token超出限制导致
-    """
+    """判断异常是否因为token超出限制导致"""
     error_str = str(exception).lower()
     # 1、确定模型供应商
     provider = None
     if model_name:
         model_str = str(model_name).lower()
-        if model_str.startswith('openai:'):
-            provider = 'openai'
-        elif model_str.startswith('anthropic:'):
-            provider = 'anthropic'
-        elif model_str.startswith('gemini:') or model_str.startswith('google:'):
-            provider = 'gemini'
-    
+        if model_str.startswith("openai:"):
+            provider = "openai"
+        elif model_str.startswith("anthropic:"):
+            provider = "anthropic"
+        elif model_str.startswith("gemini:") or model_str.startswith("google:"):
+            provider = "gemini"
+
     # 2、根据供应商检查token超出限制
-    if provider == 'openai':
+    if provider == "openai":
         return _check_openai_token_limit(exception, error_str)
-    elif provider == 'anthropic':
+    elif provider == "anthropic":
         return _check_anthropic_token_limit(exception, error_str)
-    elif provider == 'gemini':
+    elif provider == "gemini":
         return _check_gemini_token_limit(exception, error_str)
-    
+
     return (
-        _check_openai_token_limit(exception, error_str) or
-        _check_anthropic_token_limit(exception, error_str) or
-        _check_gemini_token_limit(exception, error_str)
+        _check_openai_token_limit(exception, error_str)
+        or _check_anthropic_token_limit(exception, error_str)
+        or _check_gemini_token_limit(exception, error_str)
     )
+
 
 def _check_openai_token_limit(exception: Exception, error_str: str) -> bool:
     return False
 
+
 def _check_anthropic_token_limit(exception: Exception, error_str: str) -> bool:
     return False
 
+
 def _check_gemini_token_limit(exception: Exception, error_str: str) -> bool:
     return False
+
 
 MODEL_TOKEN_LIMITS = {
     "openai:gpt-4.1-mini": 1047576,
@@ -724,17 +747,19 @@ MODEL_TOKEN_LIMITS = {
     "anthropic.claude-opus-4-1-20250805-v1:0": 200000,
 }
 
+
 def get_model_token_limit(model_string):
-    """获取模型的token限制
-    """
+    """获取模型的token限制"""
     for model_key, token_limit in MODEL_TOKEN_LIMITS.items():
         if model_key in model_string:
             return token_limit
     return None
 
-def remove_up_to_last_ai_message(messages: list[MessageLikeRepresentation]) -> list[MessageLikeRepresentation]:
-    """从消息列表中移除所有AI消息之前的消息：消息历史截断工具，用于处理 token 限制超出错误。
-    """
+
+def remove_up_to_last_ai_message(
+    messages: list[MessageLikeRepresentation],
+) -> list[MessageLikeRepresentation]:
+    """从消息列表中移除所有AI消息之前的消息：消息历史截断工具，用于处理 token 限制超出错误。"""
     for i in range(len(messages) - 1, -1, -1):
         if isinstance(messages[i], AIMessage):
             return messages[:i]

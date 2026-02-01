@@ -1,3 +1,7 @@
 """Panda_Dive - 领域深度搜索工具。"""
 
-__version__ = "1.0.0"
+from .configuration import Configuration
+from .deepresearcher import deep_researcher
+
+__version__ = "2.0.0"
+__all__ = ["Configuration", "deep_researcher"]

@@ -91,6 +91,63 @@ class Configuration(BaseModel):
         },
     )
 
+    # Retrieval quality config (Phase 1 tunables)
+    query_variants: int = Field(
+        default=3,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "number",
+                "default": 3,
+                "min": 1,
+                "max": 10,
+                "step": 1,
+                "description": "Number of query variants to generate for retrieval quality enhancement",
+            }
+        },
+    )
+    relevance_threshold: float = Field(
+        default=0.7,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "number",
+                "default": 0.7,
+                "min": 0.0,
+                "max": 1.0,
+                "step": 0.05,
+                "description": "Minimum relevance score threshold for retrieved documents",
+            }
+        },
+    )
+    rerank_top_k: int = Field(
+        default=10,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "number",
+                "default": 10,
+                "min": 1,
+                "max": 100,
+                "step": 1,
+                "description": "Number of top documents to return after reranking",
+            }
+        },
+    )
+    rerank_weight_source: str = Field(
+        default="auto",
+        metadata={
+            "x_oap_ui_config": {
+                "type": "select",
+                "default": "auto",
+                "description": "Weighting strategy for source credibility in reranking",
+                "options": [
+                    {"label": "Auto", "value": "auto"},
+                    {"label": "High", "value": "high"},
+                    {"label": "Medium", "value": "medium"},
+                    {"label": "Low", "value": "low"},
+                ],
+            }
+        },
+    )
+
     # General config
     max_structured_output_retries: int = Field(
         default=3,

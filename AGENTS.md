@@ -1,293 +1,164 @@
 # Panda_Dive Agent Guidelines
 
-This file provides guidelines for agents working on the Panda_Dive codebase - a deep domain research tool built with LangGraph and LangChain.
+Guidelines for agents working on this deep domain research tool built with LangGraph and LangChain.
 
 ## Build, Lint, Test Commands
 
-### Testing
 ```bash
-# Run all tests
-python -m pytest
-
-# Run specific test file
-python -m pytest src/test_api.py
-
-# Run single test by name
-python -m pytest -k "test_name"
-
-# Run test by function reference
-python -m pytest src/test_api.py::test_function_name
-
-# Run with verbose output
-python -m pytest -v
-
-# Run with coverage
-python -m pytest --cov=Panda_Dive
-```
-
-### Linting
-```bash
-# Run ruff (configured linter/formatter)
-ruff check .
-ruff check src/Panda_Dive/
-
-# Auto-fix ruff issues
-ruff check --fix .
-
-# Type checking with mypy
-mypy src/Panda_Dive/
-```
-
-### Installation
-```bash
-# Install package in editable mode
+# Install
 pip install -e .
-
-# Install with dev dependencies
 pip install -e ".[dev]"
+
+# Testing (tests located in src/test_*.py)
+python -m pytest                           # Run all tests
+python -m pytest src/test_api.py           # Run specific test file
+python -m pytest src/test_api.py::test_fn  # Run single test by function
+python -m pytest -k "test_name"            # Run tests by name pattern
+
+# Linting (ruff configured in pyproject.toml)
+ruff check .                               # Check code
+ruff check --fix .                         # Auto-fix issues
+mypy src/Panda_Dive/                       # Type checking
 ```
 
-## Code Style Guidelines
+## Code Style
 
-### Python Version
-- Requires Python 3.10+
-- Use modern type hints (e.g., `list[str]` not `List[str]`)
-
-### Import Style
-- Standard library imports first
-- Third-party imports second
-- Local imports third
-- Use `isort` (ruff handles this automatically)
-- Group imports by type with blank lines
-
-```python
-# Standard library
-import asyncio
-import logging
-from datetime import datetime
-
-# Third-party
-from langchain.chat_models import init_chat_model
-from langchain_core.messages import AIMessage, HumanMessage
-from pydantic import BaseModel
-
-# Local
-from .configuration import Configuration
-from .state import AgentState
-```
-
-### Type Annotations
-- **MANDATORY**: All functions must have type hints
-- Use `Optional[T]` for nullable types
-- Use `Annotated[type, reducer]` for LangGraph state fields
-- Prefer `list[str]`, `dict[str, int]` over `List[str]`, `Dict[str, int]` (Python 3.9+ syntax)
-- Use `Literal[T]` for string enum alternatives
-
-```python
-from typing import Annotated, Optional
-from typing_extensions import TypedDict
-
-def process_data(
-    data: dict[str, Any],
-    config: Optional[Configuration] = None
-) -> list[str]:
-    """Process input data and return results."""
-    ...
-
-class AgentState(TypedDict):
-    messages: Annotated[list[MessageLikeRepresentation], override_reducer]
-    research_brief: Optional[str]
-```
+### Python Standards
+- **Version**: Python 3.10+
+- **Type Hints**: Mandatory for all functions; use `list[str]`, `dict[str, Any]` (not `List`, `Dict`)
+- **Imports**: stdlib → third-party → local; grouped with blank lines; ruff handles isort
+- **Docstrings**: Google-style, imperative mood (enforced by ruff D401)
 
 ### Naming Conventions
-- **Functions/variables**: `snake_case` (e.g., `tavily_search`, `research_brief`)
-- **Classes**: `PascalCase` (e.g., `Configuration`, `AgentState`)
-- **Constants**: `UPPER_SNAKE_CASE` (e.g., `TAVILY_SEARCH_DESCRIPTION`)
-- **Private members**: `_leading_underscore` (e.g., `_check_openai_token_limit`)
-- **Async functions**: `async def` with descriptive names (e.g., `async def summarize_webpage`)
+| Type | Convention | Example |
+|------|------------|---------|
+| Functions/variables | `snake_case` | `tavily_search`, `research_brief` |
+| Classes | `PascalCase` | `Configuration`, `AgentState` |
+| Constants | `UPPER_SNAKE_CASE` | `TAVILY_SEARCH_DESCRIPTION` |
+| Private members | `_leading_underscore` | `_check_token_limit` |
+| Async functions | `async def` prefix | `async def summarize_webpage` |
 
-### Error Handling
-- Use specific exception types when possible
-- Log errors with context using `logging.exception()` or `logging.error()`
-- Return user-friendly error messages from tools
-- Handle token limit errors with `is_token_limit_exceeded()` helper
+### Key Patterns
 
+**Async/Await (required for all LangGraph nodes):**
 ```python
-try:
-    result = await some_async_operation()
-except TokenLimitError as e:
-    logging.exception("Token limit exceeded in operation")
-    return f"Error: {e}"
-except Exception as e:
-    logging.error(f"Unexpected error: {e}")
-str    raise
+async def research_node(state: AgentState) -> dict:
+    results = await asyncio.gather(*[agent.ainvoke(...) for agent in agents])
+    return {"findings": results}
 ```
 
-### Async/Await Patterns
-- All LangGraph node functions must be `async def`
-- Use `asyncio.gather()` for parallel operations
-- Always use `await` with LangChain model invocations (`.ainvoke()`)
-- Use `asyncio.wait_for()` with timeout for external API calls
-
+**LangGraph State Management:**
 ```python
-# Parallel execution
-tasks = [
-    research_agent.ainvoke(config)
-    for agent in agents
-]
-results = await asyncio.gather(*tasks)
-
-# Timeout handling
-result = await asyncio.wait_for(
-    model.ainvoke(messages),
-    timeout=60.0
-)
-```
-
-### LangGraph State Management
-- Use TypedDict for state definitions
-- Use `Annotated[list, reducer]` for message/history fields
-- Implement `override_reducer` for fields that should replace rather than append
-- State classes should inherit from `MessagesState` when messages are included
-
-```python
-from operator import add
-from typing import Annotated
-
-def override_reducer(current_value, new_value):
-    if isinstance(new_value, dict) and new_value.get("type") == "override":
-        return new_value.get("value", new_value)
-    return add(current_value, new_value)
-
 class AgentState(MessagesState):
     messages: Annotated[list[Message], override_reducer]
     research_brief: Optional[str]
 ```
 
-### Pydantic Models
-- Use for configuration and structured outputs
-- Add `Field()` with descriptions for UI metadata
-- Use `default=...` for required fields with fallbacks
-- Mark optional fields with `optional=True`
-
+**Error Handling:**
 ```python
-from pydantic import BaseModel, Field
+try:
+    result = await operation()
+except TokenLimitError:
+    logging.exception("Token limit exceeded")
+    return f"Error: {e}"
+except Exception as e:
+    logging.error(f"Operation failed: {e}")
+    raise
+```
 
+**Pydantic Models:**
+```python
 class Configuration(BaseModel):
     max_iterations: int = Field(
-        default=10,
-        description="Maximum number of iterations",
-        metadata={
-            "x_oap_ui_config": {
-                "type": "number",
-                "min": 1,
-                "max": 100
-            }
-        }
+        default=6,
+        description="Max iterations",
+        metadata={"x_oap_ui_config": {"type": "number", "min": 1, "max": 10}}
     )
 ```
 
-### Docstrings
-- Use Google-style docstrings (ruff D401 enforces imperative mood)
-- Include Args, Returns, Raises sections when applicable
-- Keep docstrings concise but informative
-- Add docstrings to all public functions and classes
-
+**Tools:**
 ```python
-async def tavily_search(
-    queries: list[str],
-    max_results: int = 5,
-    config: RunnableConfig = None
-) -> str:
-    """Fetch and summarize search results from Tavily API.
-
-    Args:
-        queries: List of search queries to execute
-        max_results: Maximum number of results per query
-        config: Runtime configuration for API keys
-
-    Returns:
-        Formatted string containing summarized search results
-
-    Raises:
-        ValueError: If API key is not configured
-    """
-    ...
-```
-
-### Constants and Configuration
-- Store API URLs, model names, and limits as module-level constants
-- Use enums for fixed sets of values
-- Configure models using `init_chat_model()` from LangChain
-- Use `Configuration.from_runnable_config()` for runtime config
-
-### Tool Development
-- Use `@tool()` decorator from LangChain for function tools
-- Add clear descriptions for tool discovery
-- Use `StructuredTool` for complex tools with schema validation
-- Handle errors gracefully and return error messages as strings
-
-```python
-from langchain_core.tools import tool
-
-@tool(description="Search the web for information")
+@tool(description="Search the web")
 async def web_search(query: str, max_results: int = 5) -> str:
-    """Search the web and return formatted results."""
     try:
-        results = await search_api(query, max_results)
-        return format_results(results)
+        return format_results(await search_api(query, max_results))
     except Exception as e:
         return f"Search failed: {e}"
 ```
 
+**Structured Output with Fallback:**
+```python
+if supports_structured_output(model_name):
+    model = base_model.with_structured_output(OutputType).with_retry(stop_after_attempt=3)
+else:
+    model = base_model.with_retry(stop_after_attempt=3)
+```
+
+**Logging:**
+- `logging.warning()` for recoverable issues (fallbacks, retries)
+- `logging.error()` for critical failures
+- `logging.exception()` for exceptions with stack trace
+
 ## Project Architecture
 
-### Graph Structure
-- **Main Graph**: `deep_researcher` in `deepresearcher.py`
-  - `clarify_with_user` → `write_research_brief` → `research_supervisor` → `final_report_generation`
-- **Supervisor Subgraph**: Manages research delegation
-  - `supervisor` → `supervisor_tools` (循环)
-- **Researcher Subgraph**: Executes individual research tasks
-  - `researcher` → `researcher_tools` → `compress_research`
+### Main Graph (`deepresearcher.py`)
+```
+START → clarify_with_user → write_research_brief → research_supervisor → final_report_generation → END
+```
 
-### Key Modules
-- `deepresearcher.py`: Main graph and node functions
-- `configuration.py`: Pydantic config models
-- `state.py`: TypedDict state definitions
-- `prompts.py`: System prompts for LLMs
-- `utils.py`: Tool wrappers, API key management, MCP integration
+### Supervisor Subgraph
+```
+supervisor → supervisor_tools → (loop or complete)
+```
 
-### LLM Integration
-- Use `init_chat_model()` for flexible model configuration
-- Models are configured via `Configuration` class
-- Support for OpenAI, Anthropic, DeepSeek, and others
-- API keys from environment or runtime config
+### Researcher Subgraph
+```
+researcher → researcher_tools → compress_research → Done
+```
 
-## Common Patterns
+### Key Files
+| File | Purpose |
+|------|---------|
+| `deepresearcher.py` | Main graph orchestration |
+| `configuration.py` | Pydantic configuration models |
+| `state.py` | TypedDict state definitions |
+| `prompts.py` | System prompts for LLMs |
+| `utils.py` | Tool wrappers, API keys, MCP integration |
+| `retrieval_quality.py` | Query rewriting, scoring, reranking |
 
-### Adding a New Tool
-1. Define tool function in `utils.py` or new module
-2. Use `@tool()` decorator with clear description
-3. Add to `get_all_tools()` in `utils.py`
-4. Update prompts if tool needs special instructions
+## Common Tasks
 
-### Adding Configuration
-1. Add field to `Configuration` class in `configuration.py`
-2. Include `Field()` with default and description
-3. Add `x_oap_ui_config` metadata for UI integration
-4. Use `from_runnable_config()` to access in nodes
+### Adding a Tool
+1. Define in `utils.py` with `@tool()` decorator
+2. Add to `get_all_tools()`
+3. Update prompts if needed
+
+### Adding Config
+1. Add field to `Configuration` in `configuration.py`
+2. Include `Field()` with `x_oap_ui_config` metadata for UI
+3. Access via `Configuration.from_runnable_config(config)`
 
 ### State Updates
 - Use `Command(goto=..., update=...)` for transitions
-- Use `{"type": "override", "value": [...]}` for replacement
+- Use `{"type": "override", "value": [...]}` to replace (not append)
 - Default is append via `operator.add`
+
+### Model Initialization
+```python
+model = create_chat_model(
+    model_name=configurable.research_model,
+    max_tokens=configurable.research_model_max_tokens,
+    api_key=get_api_key_for_model(configurable.research_model, config),
+    tags=["langsmith:nostream"],
+)
+```
 
 ## Environment Variables
 
 Required for development:
-- `TAVILY_API_KEY`: For Tavily search
-- `ARK_API_KEY`: For VolcEngine models
-- `DEEPSEEK_API_KEY`: For DeepSeek models
-- `GET_API_KEYS_FROM_CONFIG`: Set "true" for production deployment
+- `TAVILY_API_KEY` - For Tavily search
+- `ARK_API_KEY` - For VolcEngine models
+- `DEEPSEEK_API_KEY` - For DeepSeek models
+- `GET_API_KEYS_FROM_CONFIG` - Set "true" for production
 
-See `.env.example` for reference.
+See `.env.example` for all options.
