@@ -1,4 +1,5 @@
 # 🐼 Panda_Dive
+# Panda_Dive
 
 > **领域深度搜索工具 - Deep Domain Research Tool**
 
@@ -6,8 +7,24 @@
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![LangGraph](https://img.shields.io/badge/LangGraph-0.5%2B-purple)
 ![LangChain](https://img.shields.io/badge/LangChain-Community-orange)
+![Last Commit](https://img.shields.io/github/last-commit/123yongming/Panda_Dive)
+![Stars](https://img.shields.io/githubstars/123yongming/Panda_Dive?style=social)/
 
-A powerful multi-agent deep research tool built with LangGraph and LangChain. Panda_Dive orchestrates multiple researcher agents to comprehensively explore any domain, synthesize findings, and generate detailed reports.
+A powerful multi-agent deep research tool built with LangGraph and LangChain. Panda_Dive orchestrates multiple researcher agents to comprehensively explore any domain, synthesize findings, and generate detailed reports with retrieval quality safeguards.
+
+## 📑 Table of Contents
+- [Features](#-features)
+- [Architecture](#-architecture)
+- [Installation](#-installation)
+- [Quick Start](#-quick-start)
+- [Configuration](#-configuration)
+- [How It Works](#-how-it-works)
+- [Documentation](#-documentation)
+- [Development](#-development)
+- [Project Structure](#-project-structure)
+- [Contributing](#-contributing)
+- [License](#-license)
+- [Support](#-support)
 
 ---
 
@@ -42,6 +59,11 @@ Configure different models for different research stages:
 - **MCP Integration**: Extend tools via Model Context Protocol
 - **LangSmith Tracing**: Full observability and debugging support
 - **Multiple Search APIs**: Tavily, DuckDuckGo, Exa, ArXiv
+
+### 🎯 Retrieval Quality Loop
+- **Query Rewriting**: Expand queries to improve recall
+- **Relevance Scoring**: Score each result on a 0.0-1.0 scale
+- **Reranking**: Prioritize higher-quality sources before synthesis
 
 ---
 
@@ -109,7 +131,7 @@ graph LR
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/Panda_Dive.git
+git clone https://github.com/123yongming/Panda_Dive.git
 cd Panda_Dive
 ```
 
@@ -236,6 +258,10 @@ config = Configuration(model="google:gemini-2.0-flash-001")
 | `max_concurrent_research_units` | int | `4` | Parallel research tasks (1-20) |
 | `allow_clarification` | bool | `True` | Ask clarifying questions before research |
 | `model` | str | `"openai:gpt-4o"` | Default model for research |
+| `query_variants` | int | `3` | Number of query variants for retrieval quality |
+| `relevance_threshold` | float | `0.7` | Minimum relevance score threshold |
+| `rerank_top_k` | int | `10` | Number of documents after reranking |
+| `rerank_weight_source` | str | `"auto"` | Source weighting strategy for reranking |
 
 ### Advanced Configuration
 
@@ -288,6 +314,12 @@ config = Configuration(
 
 ---
 
+## 📚 Documentation
+
+- Retrieval Quality Loop (Phase 1): [docs/retrieval-quality-loop.md](docs/retrieval-quality-loop.md)
+
+---
+
 ## 🧪 Development
 
 ### Running Tests
@@ -334,6 +366,8 @@ See [AGENTS.md](AGENTS.md) for detailed development guidelines.
 
 ```
 Panda_Dive/
+├── docs/
+│   └── retrieval-quality-loop.md  # Retrieval quality loop report
 ├── src/
 │   └── Panda_Dive/
 │       ├── __init__.py           # Package exports
@@ -352,7 +386,7 @@ Panda_Dive/
 
 ## 🤝 Contributing
 
-We`welcome contributions! Here`'s how to get started:
+We welcome contributions! Here's how to get started:
 
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
@@ -389,13 +423,13 @@ Built with:
 ## 📞 Support
 
 - 📖 Read the [AGENTS.md](AGENTS.md) for development guidelines
-- 🐛 Report issues on [GitHub Issues](https://github.com/yourusername/Panda_Dive/issues)
-- 💬 Discussions welcome in [GitHub Discussions](https://github.com/yourusername/Panda_Dive/discussions)
+- 🐛 Report issues on [GitHub Issues](https://github.com/123yongming/Panda_Dive/issues)
+- 💬 Discussions welcome in [GitHub Discussions](https://github.com/123yongming/Panda_Dive/discussions)
 
 ---
 
 <div align="center">
 
-**Made with ❤️ by [PonyPan](https://github.com/PonyPan)**
+**Made with ❤️ by [PonyPan](https://github.com/123yongming)**
 
 </div>
