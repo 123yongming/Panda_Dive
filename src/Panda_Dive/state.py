@@ -1,20 +1,17 @@
 """定义状态节点以及structured数据"""
 
 import operator
-from typing import Annotated, Optional
+from typing import Annotated
 
 from langchain_core.messages import MessageLikeRepresentation
 from langgraph.graph import MessagesState
 from pydantic import BaseModel, Field
-from typing_extensions import TypedDict
-
 
 '''
     状态节点定义
 '''
 def override_reducer(current_value, new_value):
-    """
-        状态节点reducer
+    """状态节点reducer
     """
     if isinstance(new_value, dict) and new_value.get("type") == "override":
         return new_value.get("value", new_value)
@@ -22,26 +19,23 @@ def override_reducer(current_value, new_value):
         return operator.add(current_value, new_value)
 
 class AgentInputState(MessagesState):
-    """
-        通用agent输入状态节点
-        已经继承了messagesstate中的消息
+    """通用agent输入状态节点
+    已经继承了messagesstate中的消息
     """
 
 class AgentState(MessagesState):
-    """
-        通用agent状态节点
-            1、message
-            2、reserach data
+    """通用agent状态节点
+    1、message
+    2、reserach data
     """
     supervisor_messages: Annotated[list[MessageLikeRepresentation], override_reducer]
-    research_brief: Optional[str]
+    research_brief: str | None
     raw_notes: Annotated[list[str], override_reducer] = []
     notes: Annotated[list[str], override_reducer] = []
     final_report: str
 
 class SupervisorState(MessagesState):
-    """
-        supervisor状态节点
+    """supervisor状态节点
     """
     supervisor_messages: Annotated[list[MessageLikeRepresentation], override_reducer]
     research_brief: str
@@ -50,8 +44,7 @@ class SupervisorState(MessagesState):
     research_iterations: int = 0
 
 class ResearcherState(MessagesState):
-    """
-        researcher状态节点
+    """researcher状态节点
     """
     researcher_messages: Annotated[list[MessageLikeRepresentation], override_reducer]
     research_topic: str
@@ -60,8 +53,7 @@ class ResearcherState(MessagesState):
     raw_notes: Annotated[list[str], override_reducer] = []
 
 class ResearcherOutputState(MessagesState):
-    """
-        researcher输出状态节点, to: Supervisor
+    """researcher输出状态节点, to: Supervisor
     """
     compress_research: str
     raw_notes: Annotated[list[str], override_reducer] = []
@@ -75,28 +67,24 @@ class ResearcherOutputState(MessagesState):
         model.bind_tools([ClassName1, ClassName2])
 '''
 class ConductResearch(BaseModel):
-    """
-        tool,研究执行计划
+    """tool,研究执行计划
     """
     research_topic: str = Field(
         description="The topic to research. Should be a single topic, and should be described in high detail (at least a paragraph).",
     )
 
 class ResearchComplete(BaseModel):
-    """
-        tool,研究完成
+    """tool,研究完成
     """
 
 class Summary(BaseModel):
-    """
-        研究总结，绑定summarize_webpage_prompt
+    """研究总结，绑定summarize_webpage_prompt
     """
     summary: str
     key_excerpts: str
 
 class ClarifyWithUser(BaseModel):
-    """
-        澄清用户需求（澄清模型输出）
+    """澄清用户需求（澄清模型输出）
     """
     need_clarification: bool = Field(
         description="Whether the user needs to be asked a clarifying question.",
@@ -109,8 +97,7 @@ class ClarifyWithUser(BaseModel):
     )
 
 class ResearchQuestion(BaseModel):
-    """
-        研究简报，相当于用户问题的改写（简报模型输出）
+    """研究简报，相当于用户问题的改写（简报模型输出）
     """
     research_brief: str = Field(
         description="A research question that will be used to guide the research.",

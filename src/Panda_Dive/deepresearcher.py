@@ -1,4 +1,4 @@
-'''Main Graph'''
+"""Main Graph"""
 
 import asyncio
 import logging
@@ -16,6 +16,7 @@ from langchain_core.messages import (
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command
+
 from .configuration import Configuration
 from .prompts import (
     clarify_with_user_instructions,
@@ -39,6 +40,7 @@ from .state import (
 )
 from .utils import (
     anthropic_websearch_called,
+    create_chat_model,
     get_all_tools,
     get_api_key_for_model,
     get_model_token_limit,
@@ -47,6 +49,7 @@ from .utils import (
     is_token_limit_exceeded,
     openai_websearch_called,
     remove_up_to_last_ai_message,
+    supports_structured_output,
     think_tool,
 )
 
@@ -56,18 +59,17 @@ configurable_model = init_chat_model(
 )
 
 async def clarify_with_user(state: AgentState, config: RunnableConfig) -> Command[Literal["write_research_brief", "__end__"]]:
-    """
-        分析用户消息，如果研究范围不明确，则提出澄清问题。
+    """分析用户消息，如果研究范围不明确，则提出澄清问题。
         
-        该函数判断用户的请求是否需要在继续研究之前进行澄清。
-        如果禁用澄清或不需要澄清，则直接进入研究阶段。
+    该函数判断用户的请求是否需要在继续研究之前进行澄清。
+    如果禁用澄清或不需要澄清，则直接进入研究阶段。
         
-        参数:
-            state: 当前代理状态，包含用户消息
-            config: 运行时配置，包含模型设置和偏好
+    参数:
+        state: 当前代理状态，包含用户消息
+        config: 运行时配置，包含模型设置和偏好
         
-        返回:
-            Command：要么以澄清问题结束，要么继续撰写研究简报
+    返回:
+        Command：要么以澄清问题结束，要么继续撰写研究简报
     """
     # 1、判断是否需要澄清
     configurable = Configuration.from_runnable_config(config)
@@ -75,40 +77,71 @@ async def clarify_with_user(state: AgentState, config: RunnableConfig) -> Comman
         return Command(goto="write_research_brief")
     # 2、配置模型
     messages = state["messages"]
-    model_config = {
-        "model": configurable.research_model,
-        "max_tokens": configurable.research_model_max_tokens,
-        "api_key": get_api_key_for_model(configurable.research_model, config),
-        "tags": ["langsmith:nostream"]
-    }
-    clarification_model = (
-        configurable_model
-        .with_structured_output(ClarifyWithUser)
-        .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
-        .with_config(model_config)
+    model = create_chat_model(
+        model_name=configurable.research_model,
+        max_tokens=configurable.research_model_max_tokens,
+        api_key=get_api_key_for_model(configurable.research_model, config),
+        tags=["langsmith:nostream"]
     )
+    
+    # 检查是否支持 structured output
+    if supports_structured_output(configurable.research_model):
+        clarification_model = model.with_structured_output(ClarifyWithUser).with_retry(
+            stop_after_attempt=configurable.max_structured_output_retries
+        )
+    else:
+        # 对于不支持 structured output 的模型，使用 JSON 解析
+        clarification_model = model.with_retry(
+            stop_after_attempt=configurable.max_structured_output_retries
+        )
     # 3、调用模型
     prompt_content = clarify_with_user_instructions.format(
         messages=get_buffer_string(messages),
         date=get_today_str()
     )
     response = await clarification_model.ainvoke([HumanMessage(content=prompt_content)])
+    
     # 4、处理模型输出
-    if response.need_clarification:
-        return Command(
-            goto=END,
-            update={"messages": [AIMessage(content=response.question)]}
-        )
+    if supports_structured_output(configurable.research_model):
+        # 支持 structured output 的模型，直接使用响应
+        if response.need_clarification:
+            return Command(
+                goto=END,
+                update={"messages": [AIMessage(content=response.question)]}
+            )
+        else:
+            return Command(
+                goto="write_research_brief",
+                update={"messages": [AIMessage(content=response.verification)]}
+            )
     else:
-        return Command(
-            goto="write_research_brief",
-            update={"messages": [AIMessage(content=response.verification)]}
-        )
+        # 不支持 structured output 的模型，解析 JSON 响应
+        import json
+        try:
+            response_text = response.content if hasattr(response, 'content') else str(response)
+            parsed = json.loads(response_text)
+            need_clarification = parsed.get("need_clarification", False)
+            
+            if need_clarification:
+                return Command(
+                    goto=END,
+                    update={"messages": [AIMessage(content=parsed.get("question", ""))]}
+                )
+            else:
+                return Command(
+                    goto="write_research_brief",
+                    update={"messages": [AIMessage(content=parsed.get("verification", ""))]}
+                )
+        except json.JSONDecodeError:
+            # JSON 解析失败，默认不需要澄清
+            return Command(
+                goto="write_research_brief",
+                update={"messages": [AIMessage(content=str(response.content) if hasattr(response, 'content') else str(response))]}
+            )
 
 
 async def write_research_brief(state: AgentState, config: RunnableConfig) -> Command[Literal["research_supervisor"]]:
-    """
-    将用户消息转化为结构化研究简报并初始化监督者。
+    """将用户消息转化为结构化研究简报并初始化监督者。
 
     该函数分析用户消息并生成聚焦的研究简报，
     用于指导研究监督者。同时设置初始监督者
@@ -123,25 +156,45 @@ async def write_research_brief(state: AgentState, config: RunnableConfig) -> Com
     """
     # 1、配置简报模型
     configurable = Configuration.from_runnable_config(config)
-    research_mode_config = {
-        "model": configurable.research_model,
-        "max_tokens": configurable.research_model_max_tokens,
-        "api_key": get_api_key_for_model(configurable.research_model, config),
-        "tags": ["langsmith:nostream"],
-    }
-    research_model = (
-        configurable_model
-        .with_structured_output(ResearchQuestion)
-        .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
-        .with_config(research_mode_config)
+    model = create_chat_model(
+        model_name=configurable.research_model,
+        max_tokens=configurable.research_model_max_tokens,
+        api_key=get_api_key_for_model(configurable.research_model, config),
+        tags=["langsmith:nostream"]
     )
+    
+    # 检查是否支持 structured output
+    if supports_structured_output(configurable.research_model):
+        research_model = model.with_structured_output(ResearchQuestion).with_retry(
+            stop_after_attempt=configurable.max_structured_output_retries
+        )
+    else:
+        research_model = model.with_retry(
+            stop_after_attempt=configurable.max_structured_output_retries
+        )
     # 2、调用模型
     prompt_content = transform_messages_into_research_topic_prompt.format(
         messages=get_buffer_string(state.get("messages", [])),
         date=get_today_str()
     )
     response = await research_model.ainvoke([HumanMessage(content=prompt_content)])
-    # 3、使用研究简报初始化supervisor模型
+    
+    # 3、处理响应
+    if supports_structured_output(configurable.research_model):
+        # 支持 structured output 的模型，直接使用响应
+        research_brief = response.research_brief
+    else:
+        # 不支持 structured output 的模型，解析 JSON 响应
+        import json
+        try:
+            response_text = response.content if hasattr(response, 'content') else str(response)
+            parsed = json.loads(response_text)
+            research_brief = parsed.get("research_brief", response_text)
+        except json.JSONDecodeError:
+            # JSON 解析失败，直接使用响应文本
+            research_brief = str(response.content) if hasattr(response, 'content') else str(response)
+    
+    # 4、使用研究简报初始化supervisor模型
     supervisor_system_prompt = lead_researcher_prompt.format(
         date=get_today_str(),
         max_concurrent_research_units=configurable.max_concurrent_research_units,
@@ -150,12 +203,12 @@ async def write_research_brief(state: AgentState, config: RunnableConfig) -> Com
     return Command(
         goto="research_supervisor",
         update={
-            "research_brief": response.research_brief,
+            "research_brief": research_brief,
             "supervisor_messages": {
                 "type": "override",
                 "value":[
                     SystemMessage(content=supervisor_system_prompt),
-                    HumanMessage(content=response.research_brief)
+                    HumanMessage(content=research_brief)
                 ]
             }
         }
@@ -163,8 +216,7 @@ async def write_research_brief(state: AgentState, config: RunnableConfig) -> Com
     
 
 async def supervisor(state: SupervisorState, config: RunnableConfig) -> Command[Literal["supervisor_tools"]]:
-    """
-    主导研究监督者，负责规划研究策略并委派任务给研究人员。
+    """主导研究监督者，负责规划研究策略并委派任务给研究人员。
 
     监督者分析研究简报，决定如何将研究分解为可管理的任务。它可以使用 think_tool 进行战略规划，
     使用 ConductResearch 将任务委派给子研究人员，或者在满意研究结果时使用 ResearchComplete。
@@ -178,18 +230,14 @@ async def supervisor(state: SupervisorState, config: RunnableConfig) -> Command[
     """
     # 1、配置监管者模型
     configurable = Configuration.from_runnable_config(config)
-    research_model_config = {
-        "model": configurable.research_model,
-        "max_tokens": configurable.research_model_max_tokens,
-        "api_key": get_api_key_for_model(configurable.research_model, config),
-        "tags": ["langsmith:nostream"]
-    }
     lead_researcher_tools = [ConductResearch, ResearchComplete, think_tool]
-    research_model = (
-        configurable_model
-        .bind_tools(lead_researcher_tools)
-        .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
-        .with_config(research_model_config)
+    research_model = create_chat_model(
+        model_name=configurable.research_model,
+        max_tokens=configurable.research_model_max_tokens,
+        api_key=get_api_key_for_model(configurable.research_model, config),
+        tags=["langsmith:nostream"]
+    ).bind_tools(lead_researcher_tools).with_retry(
+        stop_after_attempt=configurable.max_structured_output_retries
     )
     # 2、调用模型
     supervisor_messages = state.get("supervisor_messages", [])
@@ -205,8 +253,7 @@ async def supervisor(state: SupervisorState, config: RunnableConfig) -> Command[
 
 
 async def supervisor_tools(state: SupervisorState, config: RunnableConfig) -> Command[Literal["supervisor", "__end__"]]:
-    """
-    执行监督者调用的工具，包括研究委派和战略思考。
+    """执行监督者调用的工具，包括研究委派和战略思考。
 
     此函数处理三种类型的监督者工具调用：
     1. think_tool - 继续对话的战略反思
@@ -336,8 +383,7 @@ supervisor_subgraph = supervisor_builder.compile()
 
 
 async def researcher(state: ResearcherState, config: RunnableConfig) -> Command[Literal["researcher_tools"]]:
-    """
-    独立的个体研究员，专注于特定主题进行深入研究。
+    """独立的个体研究员，专注于特定主题进行深入研究。
     
     该研究员由监督者分配具体研究主题，并使用
     可用工具（搜索、think_tool、MCP 工具）收集全面信息。
@@ -360,21 +406,17 @@ async def researcher(state: ResearcherState, config: RunnableConfig) -> Command[
             "search API or add MCP tools to your configuration."
         )
     # 2、配置research 模型
-    research_model_config = {
-        "model": configurable.research_model,
-        "max_tokens": configurable.research_model_max_tokens,
-        "api_key": get_api_key_for_model(configurable.research_model, config),
-        "tags": ["langsmith:nostream"]
-    }
     researcher_prompt = research_system_prompt.format(
         mcp_prompt=configurable.mcp_prompt or "", 
         date=get_today_str()
     )
-    research_model = (
-        configurable_model
-        .bind_tools(tools)
-        .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
-        .with_config(research_model_config)
+    research_model = create_chat_model(
+        model_name=configurable.research_model,
+        max_tokens=configurable.research_model_max_tokens,
+        api_key=get_api_key_for_model(configurable.research_model, config),
+        tags=["langsmith:nostream"]
+    ).bind_tools(tools).with_retry(
+        stop_after_attempt=configurable.max_structured_output_retries
     )
     # 3、生成research回复
     messages = [SystemMessage(content=researcher_prompt)] + researcher_messages
@@ -389,8 +431,7 @@ async def researcher(state: ResearcherState, config: RunnableConfig) -> Command[
 
 
 async def execute_tool_safely(tool, args, config):
-    """
-    安全执行工具，处理异常情况。
+    """安全执行工具，处理异常情况。
     
     Args:
         tool: 要执行的工具对象
@@ -407,8 +448,7 @@ async def execute_tool_safely(tool, args, config):
 
 
 async def researcher_tools(state: ResearcherState, config: RunnableConfig) -> Command[Literal["researcher", "compress_research"]]:
-    """
-    执行研究员调用的工具，包括搜索工具和战略思考。
+    """执行研究员调用的工具，包括搜索工具和战略思考。
     
     该函数处理各类研究员工具调用：
     1. think_tool - 继续研究对话的战略反思
@@ -474,27 +514,26 @@ async def researcher_tools(state: ResearcherState, config: RunnableConfig) -> Co
 
 
 async def compress_research(state: ResearcherState, config: RunnableConfig):
-    """
-        压缩并综合研究结果，生成简洁、结构化的摘要。
+    """压缩并综合研究结果，生成简洁、结构化的摘要。
 
-        该函数获取研究员工作中积累的所有研究结果、工具输出和 AI 消息，
-        并将其提炼为清晰、全面的摘要，同时保留所有重要信息和发现。
+    该函数获取研究员工作中积累的所有研究结果、工具输出和 AI 消息，
+    并将其提炼为清晰、全面的摘要，同时保留所有重要信息和发现。
 
-        参数:
-            state: 当前研究员状态，包含已积累的研究消息
-            config: 运行时配置，包含压缩模型设置
+    参数:
+        state: 当前研究员状态，包含已积累的研究消息
+        config: 运行时配置，包含压缩模型设置
 
-        返回:
-            字典，包含压缩后的研究摘要和原始笔记
+    返回:
+        字典，包含压缩后的研究摘要和原始笔记
     """
     # 1、配置压缩模型
     configurable = Configuration.from_runnable_config(config)
-    synthesizer_model = configurable_model.with_config({
-        "model": configurable.compression_model,
-        "max_tokens": configurable.compression_model_max_tokens,
-        "api_key": get_api_key_for_model(configurable.compression_model, config),
-        "tags": ["langsmith:nostream"]
-    })
+    synthesizer_model = create_chat_model(
+        model_name=configurable.compression_model,
+        max_tokens=configurable.compression_model_max_tokens,
+        api_key=get_api_key_for_model(configurable.compression_model, config),
+        tags=["langsmith:nostream"]
+    )
     # 2、准备压缩提示
     researcher_messages = state.get("researcher_messages", [])
     researcher_messages.append(HumanMessage(content=compress_research_simple_human_message))
@@ -549,8 +588,7 @@ researcher_subgraph = researcher_builder.compile()
 # print(researcher_subgraph.get_graph().draw_mermaid())
 
 async def final_report_generation(state: AgentState, config: RunnableConfig):
-    """
-    生成最终综合研究报告。
+    """生成最终综合研究报告。
 
     该函数汇总所有已收集的研究发现，使用配置的“报告生成模型”将其综合成结构清晰、内容全面的最终报告。
 
@@ -567,13 +605,12 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
     findings = "\n".join(notes)
     # 2、配置报告生成模型
     configurable = Configuration.from_runnable_config(config)
-    writer_model_config = {
-        "model": configurable.final_report_model,
-        "max_tokens": configurable.final_report_model_max_tokens,
-        "api_key": get_api_key_for_model(configurable.final_report_model, config),
-        "tags": ["langsmith:nostream"]
-    }
-    writer_model = configurable_model.with_config(writer_model_config)
+    writer_model = create_chat_model(
+        model_name=configurable.final_report_model,
+        max_tokens=configurable.final_report_model_max_tokens,
+        api_key=get_api_key_for_model(configurable.final_report_model, config),
+        tags=["langsmith:nostream"]
+    )
     # 3、调用报告生成模型
     max_retries = 3
     current_retry = 0
