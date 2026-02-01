@@ -54,3 +54,6 @@ Thumbs.db
 # LangGraph & Tools
 .langgraph_api/
 .sisyphus/
+src/test_ark_full.py
+src/test_ark_model.py
+src/test_structured_output.py
