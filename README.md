@@ -5,10 +5,11 @@
 
 ![Python Version](https://img.shields.io/badge/python-3.10%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
+![Version](https://img.shields.io/badge/version-2.0.1-blue)
 ![LangGraph](https://img.shields.io/badge/LangGraph-0.5%2B-purple)
 ![LangChain](https://img.shields.io/badge/LangChain-Community-orange)
 ![Last Commit](https://img.shields.io/github/last-commit/123yongming/Panda_Dive)
-![Stars](https://img.shields.io/githubstars/123yongming/Panda_Dive?style=social)/
+![Stars](https://img.shields.io/github/stars/123yongming/Panda_Dive?style=social)
 
 A powerful multi-agent deep research tool built with LangGraph and LangChain. Panda_Dive orchestrates multiple researcher agents to comprehensively explore any domain, synthesize findings, and generate detailed reports with retrieval quality safeguards.
 
@@ -58,12 +59,13 @@ Configure different models for different research stages:
 ### 🔧 Extensibility
 - **MCP Integration**: Extend tools via Model Context Protocol
 - **LangSmith Tracing**: Full observability and debugging support
-- **Multiple Search APIs**: Tavily, DuckDuckGo, Exa, ArXiv
+- **Multiple Search APIs**: Tavily, DuckDuckGo, Exa, ArXiv (DuckDuckGo is now the default - privacy-friendly and no API key required)
 
 ### 🎯 Retrieval Quality Loop
-- **Query Rewriting**: Expand queries to improve recall
+- **Query Rewriting**: Expand queries to improve recall (supports both Tavily and DuckDuckGo)
 - **Relevance Scoring**: Score each result on a 0.0-1.0 scale
 - **Reranking**: Prioritize higher-quality sources before synthesis
+- **Robust Error Handling**: Graceful handling of connection issues for DuckDuckGo searches
 
 ---
 
@@ -125,7 +127,7 @@ graph LR
 ### Prerequisites
 - Python 3.10 or higher
 - API keys for your chosen LLM provider(s)
-- (Optional) Tavily API key for web search
+- (Optional) Tavily API key if using Tavily search (DuckDuckGo requires no API key)
 
 ### Install from source
 
@@ -211,9 +213,8 @@ LANGSMITH_PROJECT=panda_dive
 from Panda_Dive import Configuration, deep_researcher
 from langchain_core.messages import HumanMessage
 
-# Configure the researcher
+# Configure the researcher (DuckDuckGo is default - no API key needed!)
 config = Configuration(
-    search_api="tavily",
     max_researcher_iterations=6,
     max_concurrent_research_units=4,
     allow_clarification=True,
@@ -244,6 +245,19 @@ config = Configuration(model="deepseek:deepseek-chat")
 config = Configuration(model="google:gemini-2.0-flash-001")
 ```
 
+### Using Different Search APIs
+
+```python
+# DuckDuckGo (default) - privacy-friendly, no API key required
+config = Configuration(search_api="duckduckgo")
+
+# Tavily - requires API key but provides more detailed results
+config = Configuration(search_api="tavily")
+
+# ArXiv - for academic paper searches
+config = Configuration(search_api="arxiv")
+```
+
 ---
 
 ## ⚙️ Configuration
@@ -252,7 +266,7 @@ config = Configuration(model="google:gemini-2.0-flash-001")
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `search_api` | str | `"tavily"` | Search API to use: `tavily`, `duckduckgo`, `exa`, `arxiv`, or `none` |
+| `search_api` | str | `"duckduckgo"` | Search API to use: `duckduckgo` (default), `tavily`, `exa`, `arxiv`, or `none` |
 | `max_researcher_iterations` | int | `6` | Maximum iterations per researcher (1-10) |
 | `max_react_tool_calls` | int | `6` | Maximum tool calls per reaction (1-30) |
 | `max_concurrent_research_units` | int | `4` | Parallel research tasks (1-20) |
@@ -266,14 +280,19 @@ config = Configuration(model="google:gemini-2.0-flash-001")
 ### Advanced Configuration
 
 ```python
+# Using DuckDuckGo (default, no API key required)
 config = Configuration(
-    # Search settings
+    search_api="duckduckgo",  # Privacy-friendly, no API key needed
+    max_researcher_iterations=8,
+    max_concurrent_research_units=8,
+)
+
+# Using Tavily (requires API key, but provides richer results)
+config = Configuration(
     search_api="tavily",
     max_researcher_iterations=8,
-
-    # Concurrency
     max_concurrent_research_units=8,
-
+    
     # Different models for different stages
     model="openai:gpt-4o",                    # Research model
     compress_model="anthropic:claude-3-5-sonnet",  # Compression
@@ -407,14 +426,14 @@ We welcome contributions! Here's how to get started:
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License.
 
 ---
 
 ## 🙏 Acknowledgments
 
 Built with:
-- [LangGraph](https://langchain-ai.github.io/langgraph/) - Graph-based orchestration
+- [LangGraph](https://docs.langchain.com/langgraph/) - Graph-based orchestration
 - [LangChain](https://www.langchain.com/) - LLM application framework
 - [Pydantic](https://docs.pydantic.dev/) - Data validation
 
@@ -424,7 +443,7 @@ Built with:
 
 - 📖 Read the [AGENTS.md](AGENTS.md) for development guidelines
 - 🐛 Report issues on [GitHub Issues](https://github.com/123yongming/Panda_Dive/issues)
-- 💬 Discussions welcome in [GitHub Discussions](https://github.com/123yongming/Panda_Dive/discussions)
+- 💬 Explore more projects by [PonyPan](https://github.com/123yongming)
 
 ---
 

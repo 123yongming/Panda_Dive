@@ -1,4 +1,10 @@
-clarify_with_user_instructions="""
+"""System prompts for Panda_Dive research agents.
+
+This module contains all prompt templates used by the research
+supervisor, researcher agents, and final report generation.
+"""
+
+clarify_with_user_instructions = """
 These are the messages that have been exchanged so far from the user asking for the report:
 <Messages>
 {messages}

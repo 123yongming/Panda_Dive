@@ -1,6 +1,6 @@
 [project]
 name = "Panda_Dive"
-version = "2.0.0"
+version = "2.0.1"
 description = "领域深度搜索工具"
 authors = [
     { name = "PonyPan" }
@@ -23,7 +23,7 @@ dependencies = [
     "pymupdf>=1.25.3",
     "xmltodict>=0.14.2",
     "linkup-sdk>=0.2.3",
-    "duckduckgo-search>=3.0.0",
+    "ddgs>=1.0.0",
     "exa-py>=1.8.8",
     "requests>=2.32.3",
     "beautifulsoup4==4.13.3",
@@ -82,3 +82,6 @@ lint.ignore = [
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
+
+[tool.pytest.ini_options]
+addopts = ["--ignore=nul"]
