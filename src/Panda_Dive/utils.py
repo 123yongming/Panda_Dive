@@ -1,3 +1,9 @@
+"""Utility functions for Panda_Dive research system.
+
+This module provides helper functions for model initialization, tool management,
+search functionality, and error handling.
+"""
+
 import asyncio
 import logging
 import os
@@ -36,7 +42,7 @@ from .state import ResearchComplete, Summary
 # Helper Functions for Model Initialization
 ######
 def get_init_chat_model_params(model_name: str) -> dict:
-    """根据模型名称获取 init_chat_model 需要的额外参数
+    """根据模型名称获取 init_chat_model 需要的额外参数.
 
     Args:
         model_name: 模型名称
@@ -55,7 +61,7 @@ def get_init_chat_model_params(model_name: str) -> dict:
 
 
 def supports_structured_output(model_name: str) -> bool:
-    """检查模型是否支持 structured output
+    """检查模型是否支持 structured output.
 
     Args:
         model_name: 模型名称
@@ -77,7 +83,7 @@ def create_chat_model(
     tags: list[str] | None = None,
     streaming: bool = False,
 ) -> BaseChatModel:
-    """创建聊天模型实例，支持 ark 等需要特殊参数的模型
+    """创建聊天模型实例，支持 ark 等需要特殊参数的模型.
 
     Args:
         model_name: 模型名称
@@ -114,6 +120,8 @@ TAVILY_SEARCH_DESCRIPTION = (
     "A search engine optimized for comprehensive, accurate, and trusted results. "
     "Useful for when you need to answer questions about current events."
 )
+
+DUCKDUCKGO_SEARCH_DESCRIPTION = "DuckDuckGo web search for general results. Useful for quick, privacy-friendly lookups."
 
 
 @tool(description=TAVILY_SEARCH_DESCRIPTION)
@@ -214,6 +222,83 @@ async def tavily_search(
     return formatted_output
 
 
+@tool(description=DUCKDUCKGO_SEARCH_DESCRIPTION)
+async def duckduckgo_search(
+    queries: List[str],
+    max_results: Annotated[int, InjectedToolArg] = 5,
+    region: Annotated[str, InjectedToolArg] = "wt-wt",
+    safesearch: Annotated[
+        Literal["on", "moderate", "off"], InjectedToolArg
+    ] = "moderate",
+    timelimit: Annotated[str | None, InjectedToolArg] = None,
+    config: RunnableConfig = None,
+) -> str:
+    """Fetch search results from DuckDuckGo.
+
+    Args:
+        queries: List of search queries to execute
+        max_results: Maximum number of results to return per query
+        region: Region code (e.g. wt-wt, us-en)
+        safesearch: Safe search setting (on, moderate, off)
+        timelimit: Optional time limit filter (d, w, m, y)
+        config: Runtime configuration (unused)
+
+    Returns:
+        Formatted string containing search results
+    """
+
+    def _search_single(query: str) -> list[dict[str, Any]]:
+        from ddgs import DDGS
+        from ddgs.exceptions import DDGSException
+
+        try:
+            with DDGS() as ddgs:
+                results = ddgs.text(
+                    query,
+                    region=region,
+                    safesearch=safesearch,
+                    timelimit=timelimit,
+                    max_results=max_results,
+                )
+                if results is None:
+                    return []
+                return list(results)
+        except DDGSException as e:
+            logging.warning(f"DuckDuckGo search failed for query '{query}': {e}")
+            return []
+        except Exception as e:
+            logging.warning(
+                f"Unexpected error in DuckDuckGo search for query '{query}': {e}"
+            )
+            return []
+
+    search_tasks = [asyncio.to_thread(_search_single, query) for query in queries]
+    search_results = await asyncio.gather(*search_tasks)
+
+    if not any(search_results):
+        return "No valid search results found. Please try different search queries or use a different search API."
+
+    formatted_output = "Search results: \n\n"
+    for query, results in zip(queries, search_results):
+        formatted_output += f"Query: {query}\n"
+        if not results:
+            formatted_output += "No results found.\n\n"
+            continue
+        for i, result in enumerate(results, 1):
+            title = result.get("title") or "Untitled"
+            url = result.get("href") or result.get("url") or ""
+            body = result.get("body") or ""
+            formatted_output += f"\n--- SOURCE {i}: {title} ---\n"
+            if url:
+                formatted_output += f"URL: {url}\n\n"
+            if body:
+                formatted_output += f"SNIPPET:\n{body}\n"
+            formatted_output += "\n"
+        formatted_output += "\n" + "-" * 80 + "\n\n"
+
+    return formatted_output
+
+
 async def tavily_search_async(
     search_queries,
     max_results: int = 5,
@@ -221,13 +306,15 @@ async def tavily_search_async(
     include_raw_content: bool = True,
     config: RunnableConfig = None,
 ):
-    """异步执行多个搜索查询
+    """异步执行多个搜索查询.
+
     Args:
         search_queries: 搜索查询列表
         max_results: 最大搜索结果数
         include_raw_content: 是否包含原始内容
-    return:
-        tavily api搜索结果字符串
+
+    Return:
+        tavily api搜索结果字符串.
     """
     tavily_client = AsyncTavilyClient(api_key=get_tavily_api_key(config))
     search_tasks = [
@@ -246,7 +333,7 @@ async def tavily_search_async(
 
 # TODO 考虑去除Open Agent Platform 生产部署
 def get_tavily_api_key(config: RunnableConfig):
-    """从RunnableConfig中获取tavily api key"""
+    """从RunnableConfig中获取tavily api key."""
     should_get_from_config = os.getenv("GET_API_KEYS_FROM_CONFIG", False)
     if should_get_from_config.lower() == "true":
         # Open Agent Platform 生产部署
@@ -260,7 +347,7 @@ def get_tavily_api_key(config: RunnableConfig):
 
 
 def get_api_key_for_model(model_name: str, config: RunnableConfig):
-    """从env或者Config中获取指定模型的api key"""
+    """从env或者Config中获取指定模型的api key."""
     should_get_from_config = os.getenv("GET_API_KEYS_FROM_CONFIG", False)
     model_name = model_name.lower()
     if should_get_from_config.lower() == "true":
@@ -283,7 +370,7 @@ def get_api_key_for_model(model_name: str, config: RunnableConfig):
 
 
 def get_today_str() -> str:
-    """获取当前日期字符串'Mon Jan 15, 2024'"""
+    """获取当前日期字符串'Mon Jan 15, 2024'."""
     now = datetime.now()
     return f"{now:%a} {now:%b} {now.day}, {now:%Y}"
 
@@ -291,13 +378,15 @@ def get_today_str() -> str:
 async def summarize_webpage(
     model: BaseChatModel, webpage_content: str, model_name: str = None
 ) -> str:
-    """异步生成网页摘要
+    """异步生成网页摘要.
+
     Args:
         model: 摘要模型
         webpage_content: 网页内容
         model_name: 模型名称（用于判断是否支持 structured output）
-    return:
-        网页摘要字符串（如果失败则返回原本的内容）
+
+    Return:
+        网页摘要字符串（如果失败则返回原本的内容）.
     """
     try:
         prompt_content = summarize_webpage_prompt.format(
@@ -387,12 +476,14 @@ async def get_mcp_access_token(
     supabase_token: str,
     base_mcp_url: str,
 ) -> Dict[str, Any] | None:
-    """获取MCP访问令牌
+    """获取MCP访问令牌.
+
     Args:
         supabase_token: Supabase访问令牌
         base_mcp_url: MCP基础URL
-    return:
-        MCP访问令牌字典（如果失败则返回None）
+
+    Return:
+        MCP访问令牌字典（如果失败则返回None）.
     """
     try:
         # Prepare OAuth token exchange request data
@@ -424,11 +515,13 @@ async def get_mcp_access_token(
 
 
 async def get_tokens(config: RunnableConfig):
-    """获取MCP访问令牌
+    """获取MCP访问令牌.
+
     Args:
         config: RunnableConfig对象
-    return:
-        MCP访问令牌字典（如果失败则返回None）
+
+    Return:
+        MCP访问令牌字典（如果失败则返回None）.
     """
     store = get_store()
     thread_id = config.get("configurable", {}).get("thread_id")
@@ -453,10 +546,11 @@ async def get_tokens(config: RunnableConfig):
 
 
 async def set_tokens(config: RunnableConfig, tokens: dict[str, Any]):
-    """设置MCP访问令牌
+    """设置MCP访问令牌.
+
     Args:
         config: RunnableConfig对象
-        tokens: MCP访问令牌字典
+        tokens: MCP访问令牌字典.
     """
     store = get_store()
     thread_id = config.get("configurable", {}).get("thread_id")
@@ -469,11 +563,13 @@ async def set_tokens(config: RunnableConfig, tokens: dict[str, Any]):
 
 
 async def fetch_tokens(config: RunnableConfig) -> dict[str, Any]:
-    """智能获取MCP访问令牌
+    """智能获取MCP访问令牌.
+
     Args:
         config: RunnableConfig对象
-    return:
-        MCP访问令牌字典（如果失败则返回None）
+
+    Return:
+        MCP访问令牌字典（如果失败则返回None）.
     """
     current_token = await get_tokens(config)
     if current_token:
@@ -493,12 +589,12 @@ async def fetch_tokens(config: RunnableConfig) -> dict[str, Any]:
 
 
 def wrap_mcp_authenticate_tool(tool: StructuredTool) -> StructuredTool:
-    """包装MCP认证工具，添加错误处理和用户友好的错误消息"""
+    """包装MCP认证工具，添加错误处理和用户友好的错误消息."""
     original_coroutine = tool.coroutine
 
     async def authentication_wrapper(**kwargs):
         def _find_mcp_error_in_exception_chain(exc: BaseException) -> McpError | None:
-            """递归搜索异常链中的MCP错误"""
+            """递归搜索异常链中的MCP错误."""
             if isinstance(exc, McpError):
                 return exc
             if hasattr(exc, "exceptions"):
@@ -533,12 +629,14 @@ def wrap_mcp_authenticate_tool(tool: StructuredTool) -> StructuredTool:
 async def load_mcp_tools(
     config: RunnableConfig, existing_tool_names: set[str]
 ) -> list[BaseTool]:
-    """加载MCP工具
+    """加载MCP工具.
+
     Args:
         config: RunnableConfig对象
         existing_tool_names: 已存在的工具名称集合
-    return:
-        加载的MCP工具列表
+
+    Return:
+        加载的MCP工具列表.
     """
     configurable = Configuration.from_runnable_config(config)
     # 1、如果需要，处理身份认证
@@ -592,9 +690,17 @@ async def load_mcp_tools(
 # Search Tool
 ######
 async def get_search_tool(search_api: SearchAPI):
-    """获取搜索工具"""
+    """获取搜索工具."""
     if search_api == SearchAPI.TAVILY:
         search_tool = tavily_search
+        search_tool.metadata = {
+            **(search_tool.metadata or {}),
+            "type": "search",
+            "name": "web_search",
+        }
+        return [search_tool]
+    elif search_api == SearchAPI.DUCKDUCKGO:
+        search_tool = duckduckgo_search
         search_tool.metadata = {
             **(search_tool.metadata or {}),
             "type": "search",
@@ -608,7 +714,7 @@ async def get_search_tool(search_api: SearchAPI):
 
 
 async def get_all_tools(config: RunnableConfig) -> list[BaseTool]:
-    """获取所有工具"""
+    """获取所有工具."""
     # 核心 research tool
     tools = [tool(ResearchComplete), think_tool]
     # search tool
@@ -628,7 +734,7 @@ async def get_all_tools(config: RunnableConfig) -> list[BaseTool]:
 
 
 def get_config_value(value):
-    """获取配置值，处理枚举类型和None值"""
+    """获取配置值，处理枚举类型和None值."""
     if value is None:
         return None
     if isinstance(value, str):
@@ -640,7 +746,7 @@ def get_config_value(value):
 
 
 def get_notes_from_tool_calls(messages: list[MessageLikeRepresentation]):
-    """从消息列表中提取所有工具调用消息的内容"""
+    """从消息列表中提取所有工具调用消息的内容."""
     return [
         tool_msg.content for tool_msg in filter_messages(messages, include_types="tool")
     ]
@@ -653,10 +759,26 @@ def get_notes_from_tool_calls(messages: list[MessageLikeRepresentation]):
 
 
 def anthropic_websearch_called(response):
+    """Check if Anthropic native websearch was called.
+
+    Args:
+        response: The AI message to check.
+
+    Returns:
+        bool: Always returns False (placeholder implementation).
+    """
     return False
 
 
 def openai_websearch_called(response):
+    """Check if OpenAI native websearch was called.
+
+    Args:
+        response: The AI message to check.
+
+    Returns:
+        bool: Always returns False (placeholder implementation).
+    """
     return False
 
 
@@ -664,7 +786,7 @@ def openai_websearch_called(response):
 # Token Limit Exceeded Utils
 ######
 def is_token_limit_exceeded(exception: Exception, model_name: str = None) -> bool:
-    """判断异常是否因为token超出限制导致"""
+    """判断异常是否因为token超出限制导致."""
     error_str = str(exception).lower()
     # 1、确定模型供应商
     provider = None
@@ -749,7 +871,7 @@ MODEL_TOKEN_LIMITS = {
 
 
 def get_model_token_limit(model_string):
-    """获取模型的token限制"""
+    """获取模型的token限制."""
     for model_key, token_limit in MODEL_TOKEN_LIMITS.items():
         if model_key in model_string:
             return token_limit
@@ -759,7 +881,7 @@ def get_model_token_limit(model_string):
 def remove_up_to_last_ai_message(
     messages: list[MessageLikeRepresentation],
 ) -> list[MessageLikeRepresentation]:
-    """从消息列表中移除所有AI消息之前的消息：消息历史截断工具，用于处理 token 限制超出错误。"""
+    """从消息列表中移除所有AI消息之前的消息：消息历史截断工具，用于处理 token 限制超出错误。."""
     for i in range(len(messages) - 1, -1, -1):
         if isinstance(messages[i], AIMessage):
             return messages[:i]
