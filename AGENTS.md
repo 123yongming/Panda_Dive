@@ -1,164 +1,200 @@
-# Panda_Dive Agent Guidelines
+# Panda_Dive - Agent Development Guidelines
 
-Guidelines for agents working on this deep domain research tool built with LangGraph and LangChain.
-
-## Build, Lint, Test Commands
+## Build & Test Commands
 
 ```bash
-# Install
-pip install -e .
-pip install -e ".[dev]"
+# Run all tests
+python -m pytest
 
-# Testing (tests located in src/test_*.py)
-python -m pytest                           # Run all tests
-python -m pytest src/test_api.py           # Run specific test file
-python -m pytest src/test_api.py::test_fn  # Run single test by function
-python -m pytest -k "test_name"            # Run tests by name pattern
+# Run specific test
+python -m pytest src/test_ark_model.py
 
-# Linting (ruff configured in pyproject.toml)
-ruff check .                               # Check code
-ruff check --fix .                         # Auto-fix issues
-mypy src/Panda_Dive/                       # Type checking
+# Run tests with verbose output
+python -m pytest -v
+
+# Run tests with coverage
+python -m pytest --cov=Panda_Dive
+
+# Linting with ruff
+ruff check .
+
+# Auto-fix linting issues
+ruff check --fix .
+
+# Type checking with mypy (optional dev dependency)
+mypy src/Panda_Dive/
 ```
-
-## Code Style
-
-### Python Standards
-- **Version**: Python 3.10+
-- **Type Hints**: Mandatory for all functions; use `list[str]`, `dict[str, Any]` (not `List`, `Dict`)
-- **Imports**: stdlib → third-party → local; grouped with blank lines; ruff handles isort
-- **Docstrings**: Google-style, imperative mood (enforced by ruff D401)
-
-### Naming Conventions
-| Type | Convention | Example |
-|------|------------|---------|
-| Functions/variables | `snake_case` | `tavily_search`, `research_brief` |
-| Classes | `PascalCase` | `Configuration`, `AgentState` |
-| Constants | `UPPER_SNAKE_CASE` | `TAVILY_SEARCH_DESCRIPTION` |
-| Private members | `_leading_underscore` | `_check_token_limit` |
-| Async functions | `async def` prefix | `async def summarize_webpage` |
-
-### Key Patterns
-
-**Async/Await (required for all LangGraph nodes):**
-```python
-async def research_node(state: AgentState) -> dict:
-    results = await asyncio.gather(*[agent.ainvoke(...) for agent in agents])
-    return {"findings": results}
-```
-
-**LangGraph State Management:**
-```python
-class AgentState(MessagesState):
-    messages: Annotated[list[Message], override_reducer]
-    research_brief: Optional[str]
-```
-
-**Error Handling:**
-```python
-try:
-    result = await operation()
-except TokenLimitError:
-    logging.exception("Token limit exceeded")
-    return f"Error: {e}"
-except Exception as e:
-    logging.error(f"Operation failed: {e}")
-    raise
-```
-
-**Pydantic Models:**
-```python
-class Configuration(BaseModel):
-    max_iterations: int = Field(
-        default=6,
-        description="Max iterations",
-        metadata={"x_oap_ui_config": {"type": "number", "min": 1, "max": 10}}
-    )
-```
-
-**Tools:**
-```python
-@tool(description="Search the web")
-async def web_search(query: str, max_results: int = 5) -> str:
-    try:
-        return format_results(await search_api(query, max_results))
-    except Exception as e:
-        return f"Search failed: {e}"
-```
-
-**Structured Output with Fallback:**
-```python
-if supports_structured_output(model_name):
-    model = base_model.with_structured_output(OutputType).with_retry(stop_after_attempt=3)
-else:
-    model = base_model.with_retry(stop_after_attempt=3)
-```
-
-**Logging:**
-- `logging.warning()` for recoverable issues (fallbacks, retries)
-- `logging.error()` for critical failures
-- `logging.exception()` for exceptions with stack trace
 
 ## Project Architecture
 
-### Main Graph (`deepresearcher.py`)
+Panda_Dive is a LangGraph-based multi-agent deep research system with three main components:
+
+1. **Main Graph**: Orchestrates the overall research workflow
+   - `clarify_with_user`: Optional clarification phase
+   - `write_research_brief`: Generates research brief
+   - `research_supervisor`: Delegates to researchers (subgraph)
+   - `final_report_generation`: Synthesizes final report
+
+2. **Supervisor Subgraph**: Manages research delegation
+   - `supervisor`: Plans research strategy
+   - `supervisor_tools`: Executes ConductResearch tool calls
+
+3. **Researcher Subgraph**: Executes individual research tasks
+   - `researcher`: Conducts research using tools
+   - `researcher_tools`: Executes search and think tools
+   - `compress_research`: Synthesizes findings
+
+## Code Style Guidelines
+
+### Python Version & Type Hints
+- Use Python 3.10+ syntax for type hints
+- Prefer built-in types: `list[str]`, `dict[str, Any]` over `List[str]`, `Dict[str, Any]`
+- Always use `|` for union types: `str | None` instead of `Optional[str]`
+- All graph nodes must be async functions
+
+### Import Organization
+
+import asyncio
+import logging
+from datetime import datetime
+from typing import Annotated, Any, List
+
+from langchain.chat_models import init_chat_model
+from langchain_core.messages import HumanMessage
+from langchain_core.runnables import RunnableConfig
+from pydantic import BaseModel, Field
+
+from .configuration import Configuration
+from .utils import create_chat_model
 ```
-START → clarify_with_user → write_research_brief → research_supervisor → final_report_generation → END
-```
 
-### Supervisor Subgraph
-```
-supervisor → supervisor_tools → (loop or complete)
-```
+### Naming Conventions
+- **Functions**: `snake_case` - e.g., `clarify_with_user`, `create_chat_model`
+- **Classes**: `PascalCase` - e.g., `Configuration`, `SearchAPI`, `ResearcherState`
+- **Constants**: `UPPER_SNAKE_CASE` - e.g., `MODEL_TOKEN_LIMITS`, `TAVILY_SEARCH_DESCRIPTION`
+- **Private functions**: `_leading_underscore` - e.g., `_score_single`, `_parse_search_results`
+- **Graph nodes**: `snake_case` - all LangGraph node functions
 
-### Researcher Subgraph
-```
-researcher → researcher_tools → compress_research → Done
-```
-
-### Key Files
-| File | Purpose |
-|------|---------|
-| `deepresearcher.py` | Main graph orchestration |
-| `configuration.py` | Pydantic configuration models |
-| `state.py` | TypedDict state definitions |
-| `prompts.py` | System prompts for LLMs |
-| `utils.py` | Tool wrappers, API keys, MCP integration |
-| `retrieval_quality.py` | Query rewriting, scoring, reranking |
-
-## Common Tasks
-
-### Adding a Tool
-1. Define in `utils.py` with `@tool()` decorator
-2. Add to `get_all_tools()`
-3. Update prompts if needed
-
-### Adding Config
-1. Add field to `Configuration` in `configuration.py`
-2. Include `Field()` with `x_oap_ui_config` metadata for UI
-3. Access via `Configuration.from_runnable_config(config)`
-
-### State Updates
-- Use `Command(goto=..., update=...)` for transitions
-- Use `{"type": "override", "value": [...]}` to replace (not append)
-- Default is append via `operator.add`
-
-### Model Initialization
+### Docstrings (Google Style)
 ```python
-model = create_chat_model(
-    model_name=configurable.research_model,
-    max_tokens=configurable.research_model_max_tokens,
-    api_key=get_api_key_for_model(configurable.research_model, config),
-    tags=["langsmith:nostream"],
-)
+async def clarify_with_user(state: AgentState, config: RunnableConfig) -> Command:
+    """分析用户消息,如果研究范围不明确,则提出澄清问题。
+
+    该函数判断用户的请求是否需要在继续研究之前进行澄清。
+    如果禁用澄清或不需要澄清,则直接进入研究阶段。
+
+    参数:
+        state: 当前代理状态,包含用户消息
+        config: 运行时配置,包含模型设置和偏好
+
+    返回:
+        Command:要么以澄清问题结束,要么继续撰写研究简报
+    """
 ```
 
-## Environment Variables
+### LangGraph Patterns
+- All all graph nodes return `Command` objects with `goto` and optional `update`
+- Use `Command(goto="node_name")` for routing
+- Use `Command(goto=END, update={"key": value})` for terminal nodes
+- State classes inherit from `MessagesState` for message handling
+- Use `Annotated[list, override_reducer]` for controlled state updates
+- Compile graphs with `builder.compile()` and optional `config_schema`
 
-Required for development:
-- `TAVILY_API_KEY` - For Tavily search
-- `ARK_API_KEY` - For VolcEngine models
-- `DEEPSEEK_API_KEY` - For DeepSeek models
-- `GET_API_KEYS_FROM_CONFIG` - Set "true" for production
+### Configuration with Pydantic
+```python
+class Configuration(BaseModel):
+    """DeepResearch 全局配置类。"""
 
-See `.env.example` for all options.
+    search_api: SearchAPI = Field(default=SearchAPI.TAVILY)
+    max_researcher_iterations: int = Field(default=6)
+    
+    @classmethod
+    def from_runnable_config(cls, config: RunnableConfig) -> "Configuration":
+        """Extract from LangGraph runtime config."""
+        configuration = config.get("configurable", {}) if config else {}
+        # ... extract values from env or config
+```
+
+### Structured Output Handling
+```python
+# Check model support for structured output
+if supports_structured_output(model_name):
+    model = base_model.with_structured_output(MySchema).with_retry(
+        stop_after_attempt=3
+    )
+else:
+    # Fallback to JSON parsing
+    model = base_model.with_retry(stop_after_attempt=3)
+    # ... parse json.loads(response.content)
+```
+
+### Error Handling
+- Use async/await patterns consistently
+- Log exceptions with `logging.exception()` or `logging.warning()`
+- Provide user-friendly error messages in return values
+- Use try/except for model calls and external API interactions
+- Token limit errors: use `is_token_limit_exceeded()` helper
+
+### Async Patterns
+```python
+# Parallel execution with asyncio.gather
+tasks = [func(arg) for arg in args]
+results = await asyncio.gather(*tasks)
+
+# Timeout handling
+try:
+    result = await asyncio.wait_for(model.ainvoke(messages), timeout=60.0)
+except asyncio.TimeoutError:
+    logging.warning("Operation timed out")
+```
+
+### State Management
+- Use `MessagesState` for message history
+- Define custom state classes inheriting from `MessagesState`
+- Use `override_reducer` for overriding state values instead of appending
+- Message types: `HumanMessage`, `AIMessage`, `ToolMessage`, `SystemMessage`
+
+### Tool Definitions
+```python
+@tool(description="Tool description")
+async def my_tool(param: str, config: RunnableConfig = None) -> str:
+    """Tool docstring for LLM visibility."""
+    # Implementation
+    return result
+```
+
+### Constants & Configuration
+- Environment variable checks: `os.getenv("KEY_NAME")`
+- Default model parameters in `MODEL_TOKEN_LIMITS` dictionary
+- Search API enum for type safety: `SearchAPI.TAVILY`
+
+## File Structure
+```
+src/Panda_Dive/
+├── __init__.py           # Package exports
+├── deepresearcher.py     # Main graph orchestration (863 lines)
+├── configuration.py       # Pydantic config models
+├── state.py              # TypedDict state definitions
+├── prompts.py            # System prompts
+├── utils.py              # Tool wrappers & helpers
+└── retrieval_quality.py   # Search quality scoring
+```
+
+## Testing Guidelines
+- Test files in `src/` directory with `test_` prefix
+- Use `pytest` and `asyncio.run()` for async tests
+- Include basic connectivity tests for model APIs
+- Mock external API calls for unit tests
+
+## Model Support
+- Models without structured output support (e.g., "ark*"): Parse JSON responses
+- Always check `supports_structured_output()` before using `.with_structured_output()`
+- Use `create_chat_model()` helper for model initialization
+- Handle model-specific base URLs through `get_init_chat_model_params()`
+
+## Important Notes
+- Never suppress type errors with `as any` or `@ts-ignore`
+- All LLM calls should include retry logic via `.with_retry()`
+- Use `tags=["langsmith:nostream"]` for internal model calls
+- LangSmith tracing is available via LANGSMITH_API_KEY env var
+- MCP tools are loaded dynamically via `load_mcp_tools()`

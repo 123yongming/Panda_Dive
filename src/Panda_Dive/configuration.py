@@ -1,3 +1,5 @@
+"""Configuration module for Panda_Dive research system."""
+
 import os
 from enum import Enum
 from typing import Any, List
@@ -8,14 +10,15 @@ from pydantic import BaseModel, Field
 
 class SearchAPI(Enum):
     # TODO: 增加支持搜索的模型以及更多api
-    """搜索API枚举类。"""
+    """搜索API枚举类。."""
 
     TAVILY = "tavily"
+    DUCKDUCKGO = "duckduckgo"
     NONE = "none"
 
 
 class MCPConfig(BaseModel):
-    """MCP配置类"""
+    """MCP配置类."""
 
     url: str | None = Field(default=None, optional=True)
     tools: List[str] | None = Field(default=None, optional=True)
@@ -23,19 +26,20 @@ class MCPConfig(BaseModel):
 
 
 class Configuration(BaseModel):
-    """DeepResearch 全局配置类。"""
+    """DeepResearch 全局配置类。."""
 
     # Researcher config
     search_api: SearchAPI = Field(
-        default=SearchAPI.TAVILY,
+        default=SearchAPI.DUCKDUCKGO,
         description="搜索API",
         metadata={
             "x_oap_ui_config": {
                 "type": "select",
-                "default": "tavily",
+                "default": "duckduckgo",
                 "description": "Search API to use for research. NOTE: Make sure your Researcher Model supports the selected search API.",
                 "options": [
                     {"label": "Tavily", "value": SearchAPI.TAVILY.value},
+                    {"label": "DuckDuckGo", "value": SearchAPI.DUCKDUCKGO.value},
                     {"label": "None", "value": SearchAPI.NONE.value},
                 ],
             }
@@ -283,6 +287,7 @@ class Configuration(BaseModel):
     def from_runnable_config(
         cls, config: RunnableConfig | None = None
     ) -> "Configuration":
+        """Extract Configuration from RunnableConfig."""
         configuration = config.get("configurable", {}) if config else {}
         field_names = list(cls.model_fields.keys())
         values: dict[str, Any] = {
@@ -294,4 +299,6 @@ class Configuration(BaseModel):
         return cls(**{k: v for k, v in values.items() if v is not None})
 
     class Config:
+        """Pydantic config class."""
+
         arbitrary_types_allowed = True
