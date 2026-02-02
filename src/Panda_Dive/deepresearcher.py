@@ -1,4 +1,4 @@
-"""Main Graph"""
+"""Main Graph."""
 
 import asyncio
 import logging
@@ -27,6 +27,13 @@ from .prompts import (
     research_system_prompt,
     transform_messages_into_research_topic_prompt,
 )
+from .retrieval_quality import (
+    _format_search_results,
+    _parse_search_results,
+    rerank_results,
+    rewrite_query_for_retrieval,
+    score_retrieval_quality,
+)
 from .state import (
     AgentInputState,
     AgentState,
@@ -52,13 +59,6 @@ from .utils import (
     supports_structured_output,
     think_tool,
 )
-from .retrieval_quality import (
-    _format_search_results,
-    _parse_search_results,
-    rerank_results,
-    rewrite_query_for_retrieval,
-    score_retrieval_quality,
-)
 
 # 初始化base 模型
 configurable_model = init_chat_model(
@@ -69,7 +69,7 @@ configurable_model = init_chat_model(
 async def clarify_with_user(
     state: AgentState, config: RunnableConfig
 ) -> Command[Literal["write_research_brief", "__end__"]]:
-    """分析用户消息，如果研究范围不明确，则提出澄清问题。
+    """分析用户消息，如果研究范围不明确，则提出澄清问题。.
 
     该函数判断用户的请求是否需要在继续研究之前进行澄清。
     如果禁用澄清或不需要澄清，则直接进入研究阶段。
@@ -166,7 +166,7 @@ async def clarify_with_user(
 async def write_research_brief(
     state: AgentState, config: RunnableConfig
 ) -> Command[Literal["research_supervisor"]]:
-    """将用户消息转化为结构化研究简报并初始化监督者。
+    """将用户消息转化为结构化研究简报并初始化监督者。.
 
     该函数分析用户消息并生成聚焦的研究简报，
     用于指导研究监督者。同时设置初始监督者
@@ -247,7 +247,7 @@ async def write_research_brief(
 async def supervisor(
     state: SupervisorState, config: RunnableConfig
 ) -> Command[Literal["supervisor_tools"]]:
-    """主导研究监督者，负责规划研究策略并委派任务给研究人员。
+    """主导研究监督者，负责规划研究策略并委派任务给研究人员。.
 
     监督者分析研究简报，决定如何将研究分解为可管理的任务。它可以使用 think_tool 进行战略规划，
     使用 ConductResearch 将任务委派给子研究人员，或者在满意研究结果时使用 ResearchComplete。
@@ -288,7 +288,7 @@ async def supervisor(
 async def supervisor_tools(
     state: SupervisorState, config: RunnableConfig
 ) -> Command[Literal["supervisor", "__end__"]]:
-    """执行监督者调用的工具，包括研究委派和战略思考。
+    """执行监督者调用的工具，包括研究委派和战略思考。.
 
     此函数处理三种类型的监督者工具调用：
     1. think_tool - 继续对话的战略反思
@@ -442,7 +442,7 @@ supervisor_subgraph = supervisor_builder.compile()
 async def researcher(
     state: ResearcherState, config: RunnableConfig
 ) -> Command[Literal["researcher_tools"]]:
-    """独立的个体研究员，专注于特定主题进行深入研究。
+    """独立的个体研究员，专注于特定主题进行深入研究。.
 
     该研究员由监督者分配具体研究主题，并使用
     可用工具（搜索、think_tool、MCP 工具）收集全面信息。
@@ -493,7 +493,7 @@ async def researcher(
 
 
 async def execute_tool_safely(tool, args, config):
-    """安全执行工具，处理异常情况。
+    """安全执行工具，处理异常情况。.
 
     Args:
         tool: 要执行的工具对象
@@ -512,7 +512,7 @@ async def execute_tool_safely(tool, args, config):
 async def researcher_tools(
     state: ResearcherState, config: RunnableConfig
 ) -> Command[Literal["researcher", "compress_research"]]:
-    """执行研究员调用的工具，包括搜索工具和战略思考。
+    """执行研究员调用的工具，包括搜索工具和战略思考。.
 
     该函数处理各类研究员工具调用：
     1. think_tool - 继续研究对话的战略反思
@@ -556,7 +556,7 @@ async def researcher_tools(
     reranked_urls: list[str] = []
     quality_notes: list[str] = []
 
-    search_tool_names = {"tavily_search", "web_search"}
+    search_tool_names = {"tavily_search", "web_search", "duckduckgo_search"}
     for tool_call in tool_calls:
         if tool_call["name"] not in search_tool_names:
             continue
@@ -658,7 +658,7 @@ async def researcher_tools(
 
 
 async def compress_research(state: ResearcherState, config: RunnableConfig):
-    """压缩并综合研究结果，生成简洁、结构化的摘要。
+    """压缩并综合研究结果，生成简洁、结构化的摘要。.
 
     该函数获取研究员工作中积累的所有研究结果、工具输出和 AI 消息，
     并将其提炼为清晰、全面的摘要，同时保留所有重要信息和发现。
@@ -745,7 +745,7 @@ researcher_subgraph = researcher_builder.compile()
 
 
 async def final_report_generation(state: AgentState, config: RunnableConfig):
-    """生成最终综合研究报告。
+    """生成最终综合研究报告。.
 
     该函数汇总所有已收集的研究发现，使用配置的“报告生成模型”将其综合成结构清晰、内容全面的最终报告。
 

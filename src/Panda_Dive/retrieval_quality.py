@@ -57,8 +57,8 @@ def _parse_search_results(raw_text: str) -> list[dict[str, Any]]:
         return []
     pattern = re.compile(
         r"--- SOURCE\s+\d+:\s+(?P<title>.*?)\s+---\s*"
-        r"URL:\s+(?P<url>\S+)\s*"
-        r"SUMMARY:\s*(?P<summary>.*?)(?:\n\s*-{5,}|\Z)",
+        r"(?:URL:\s*(?P<url>\S*)\s*)?"
+        r"(?:SUMMARY|SNIPPET):\s*(?P<summary>.*?)(?:\n\s*-{5,}|\Z)",
         re.DOTALL,
     )
     results: list[dict[str, Any]] = []
@@ -66,7 +66,7 @@ def _parse_search_results(raw_text: str) -> list[dict[str, Any]]:
         results.append(
             {
                 "title": match.group("title").strip(),
-                "url": match.group("url").strip(),
+                "url": (match.group("url") or "").strip(),
                 "summary": match.group("summary").strip(),
             }
         )
@@ -155,12 +155,33 @@ async def score_retrieval_quality(
                 logging.warning("Model returned None, using default score")
                 score = 0.5
             else:
-                score_text = getattr(response, "content", str(response))
-                if not score_text or not str(score_text).strip():
-                    logging.warning("Empty response content, using default score")
-                    score = 0.5
-                else:
-                    score = _clamp_score(float(str(score_text).strip()))
+                # Try to extract score from response
+                score_value = None
+                # First check if response has content attribute (standard message)
+                if hasattr(response, "content") and response.content is not None:
+                    content_str = str(response.content).strip()
+                    if content_str:
+                        try:
+                            score_value = float(content_str)
+                        except ValueError:
+                            pass
+                # If not found, check if response has score attribute (SimpleNamespace)
+                if score_value is None and hasattr(response, "score"):
+                    try:
+                        score_value = float(response.score)
+                    except (ValueError, TypeError):
+                        pass
+                # Last resort: try to parse string representation
+                if score_value is None:
+                    str_repr = str(response).strip()
+                    try:
+                        score_value = float(str_repr)
+                    except ValueError:
+                        logging.warning(
+                            "Could not parse score from response: %s", str_repr
+                        )
+                        score_value = 0.5
+                score = _clamp_score(score_value)
         except Exception as exc:
             logging.warning("Fallback scoring failed: %s", exc)
             score = 0.0
