@@ -78,6 +78,7 @@ lint.ignore = [
     "UP035",
     "D417",
     "E501",
+    "E402", # Ignore import order in test files with sys.path manipulation
 ]
 
 [tool.ruff.lint.pydocstyle]

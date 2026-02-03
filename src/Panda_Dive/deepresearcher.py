@@ -581,13 +581,29 @@ async def researcher_tools(
         quality_notes.append(
             f"Rewrote query '{original_query}' into {len(rewritten)} variants"
         )
-    tool_execution_tasks = [
-        execute_tool_safely(tools_by_name[tool_call["name"]], tool_call["args"], config)
-        for tool_call in tool_calls
-    ]
-    observations = await asyncio.gather(*tool_execution_tasks)
     tool_outputs = []
-    for observation, tool_call in zip(observations, tool_calls):
+    tool_execution_tasks = []
+    resolved_tool_calls = []
+    for tool_call in tool_calls:
+        tool_name = tool_call["name"]
+        tool = tools_by_name.get(tool_name)
+        if not tool and tool_name.endswith("_tool"):
+            tool = tools_by_name.get(tool_name[: -len("_tool")])
+        if not tool:
+            tool_outputs.append(
+                ToolMessage(
+                    content=f"Error: Tool '{tool_name}' not found.",
+                    name=tool_name,
+                    tool_call_id=tool_call["id"],
+                )
+            )
+            continue
+        resolved_tool_calls.append(tool_call)
+        tool_execution_tasks.append(
+            execute_tool_safely(tool, tool_call["args"], config)
+        )
+    observations = await asyncio.gather(*tool_execution_tasks)
+    for observation, tool_call in zip(observations, resolved_tool_calls):
         content = observation
         if tool_call["name"] in search_tool_names and isinstance(observation, str):
             parsed_results = _parse_search_results(observation)

@@ -39,6 +39,36 @@ def _clamp_score(score: float) -> float:
     return score
 
 
+def _extract_first_float(text: str) -> float | None:
+    if not text:
+        return None
+    match = re.search(r"[-+]?\d*\.?\d+", text)
+    if not match:
+        return None
+    try:
+        return float(match.group(0))
+    except ValueError:
+        return None
+
+
+def _is_rate_limit_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return "429" in message or "rate limit" in message or "too many requests" in message
+
+
+async def _ainvoke_with_backoff(
+    model: BaseChatModel, prompt: str, max_retries: int
+) -> Any:
+    retries = max(1, max_retries)
+    for attempt in range(retries):
+        try:
+            return await model.ainvoke([HumanMessage(content=prompt)])
+        except Exception as exc:
+            if not _is_rate_limit_error(exc) or attempt == retries - 1:
+                raise
+            await asyncio.sleep(2**attempt)
+
+
 def _normalize_query_variants(queries: list[str], original_query: str) -> list[str]:
     normalized: list[str] = []
     for item in queries:
@@ -126,7 +156,14 @@ async def score_retrieval_quality(
     max_retries = configurable.max_structured_output_retries
     structured_supported = supports_structured_output(configurable.research_model)
 
+    max_concurrency = max(1, configurable.max_concurrent_research_units)
+    semaphore = asyncio.Semaphore(max_concurrency)
+
     async def _score_single(result: dict[str, Any]) -> dict[str, Any]:
+        async with semaphore:
+            return await _score_single_inner(result)
+
+    async def _score_single_inner(result: dict[str, Any]) -> dict[str, Any]:
         title = result.get("title", "")
         summary = result.get("summary", "")
         prompt = (
@@ -150,7 +187,7 @@ async def score_retrieval_quality(
             except Exception as structured_exc:
                 logging.warning("Structured output scoring failed: %s", structured_exc)
         try:
-            response = await model.ainvoke([HumanMessage(content=prompt)])
+            response = await _ainvoke_with_backoff(model, prompt, max_retries)
             if response is None:
                 logging.warning("Model returned None, using default score")
                 score = 0.5
@@ -164,7 +201,7 @@ async def score_retrieval_quality(
                         try:
                             score_value = float(content_str)
                         except ValueError:
-                            pass
+                            score_value = _extract_first_float(content_str)
                 # If not found, check if response has score attribute (SimpleNamespace)
                 if score_value is None and hasattr(response, "score"):
                     try:
@@ -177,10 +214,12 @@ async def score_retrieval_quality(
                     try:
                         score_value = float(str_repr)
                     except ValueError:
-                        logging.warning(
-                            "Could not parse score from response: %s", str_repr
-                        )
-                        score_value = 0.5
+                        score_value = _extract_first_float(str_repr)
+                        if score_value is None:
+                            logging.warning(
+                                "Could not parse score from response: %s", str_repr
+                            )
+                            score_value = 0.5
                 score = _clamp_score(score_value)
         except Exception as exc:
             logging.warning("Fallback scoring failed: %s", exc)
@@ -234,7 +273,9 @@ async def rewrite_query_for_retrieval(
                 "Structured output query rewriting failed: %s", structured_exc
             )
     try:
-        response = await model.ainvoke([HumanMessage(content=prompt)])
+        response = await _ainvoke_with_backoff(
+            model, prompt, configurable.max_structured_output_retries
+        )
         if response is None:
             logging.warning("Model returned None, using original query")
             return [original_query]

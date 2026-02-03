@@ -392,9 +392,28 @@ async def summarize_webpage(
         prompt_content = summarize_webpage_prompt.format(
             webpage_content=webpage_content, date=get_today_str()
         )
-        summary = await asyncio.wait_for(
-            model.ainvoke([HumanMessage(content=prompt_content)]), timeout=60.0
-        )
+
+        async def _invoke_with_backoff():
+            retries = 3
+            for attempt in range(retries):
+                try:
+                    return await asyncio.wait_for(
+                        model.ainvoke([HumanMessage(content=prompt_content)]),
+                        timeout=60.0,
+                    )
+                except Exception as exc:
+                    message = str(exc).lower()
+                    if (
+                        "429" not in message
+                        and "rate limit" not in message
+                        and "too many requests" not in message
+                    ):
+                        raise
+                    if attempt == retries - 1:
+                        raise
+                    await asyncio.sleep(2**attempt)
+
+        summary = await _invoke_with_backoff()
 
         # 检查是否支持 structured output
         if model_name and not supports_structured_output(model_name):
