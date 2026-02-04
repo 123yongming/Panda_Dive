@@ -5,7 +5,7 @@
 
 ![Python Version](https://img.shields.io/badge/python-3.10%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-2.0.1-blue)
+![Version](https://img.shields.io/badge/version-3.0.0-blue)
 ![LangGraph](https://img.shields.io/badge/LangGraph-0.5%2B-purple)
 ![LangChain](https://img.shields.io/badge/LangChain-Community-orange)
 ![Last Commit](https://img.shields.io/github/last-commit/123yongming/Panda_Dive)
@@ -21,6 +21,7 @@ A powerful multi-agent deep research tool built with LangGraph and LangChain. Pa
 - [Configuration](#-configuration)
 - [How It Works](#-how-it-works)
 - [Documentation](#-documentation)
+- [Evaluation](#-evaluation)
 - [Development](#-development)
 - [Project Structure](#-project-structure)
 - [Contributing](#-contributing)
@@ -336,6 +337,112 @@ config = Configuration(
 ## 📚 Documentation
 
 - Retrieval Quality Loop (Phase 1): [docs/retrieval-quality-loop.md](docs/retrieval-quality-loop.md)
+
+---
+
+## 🧪 Evaluation
+
+Panda_Dive includes a comprehensive evaluation framework using LangSmith to benchmark the deep research system against the "Deep Research Bench" dataset.
+
+### Environment Variables
+
+Before running evaluations, ensure these environment variables are set:
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `LANGSMITH_API_KEY` | **Yes** | LangSmith API key for evaluation tracking |
+| `OPENAI_API_KEY` | No* | OpenAI API key (if using OpenAI models) |
+| `ANTHROPIC_API_KEY` | No* | Anthropic API key (if using Claude models) |
+| `DEEPSEEK_API_KEY` | No* | DeepSeek API key (if using DeepSeek models) |
+
+*Required only if using the respective provider's models.
+
+### Smoke Test (Quick Validation)
+
+Run a quick smoke test on 2 examples to validate the setup:
+
+```bash
+# Basic smoke test (2 examples, default settings)
+python tests/run_evaluate.py --smoke --dataset-name "deep_research_bench"
+
+# Smoke test with specific model
+python tests/run_evaluate.py --smoke --model openai:gpt-4o
+
+# Smoke test with custom concurrency and timeout
+python tests/run_evaluate.py --smoke --max-concurrency 2 --timeout-seconds 1800
+```
+
+### Full Evaluation
+
+Run a full evaluation on the entire dataset (⚠️ **Warning: Expensive!**):
+
+```bash
+# Full evaluation (all dataset examples)
+python tests/run_evaluate.py --full
+
+# Full evaluation with custom model
+python tests/run_evaluate.py --full --model anthropic:claude-3-5-sonnet-20241022
+
+# Full evaluation with custom dataset and experiment prefix
+python tests/run_evaluate.py --full --dataset-name "Custom Dataset" --experiment-prefix "my-experiment"
+```
+
+### Configuration Options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--smoke` | - | Run smoke test (2 examples) |
+| `--full` | - | Run full evaluation (all examples) |
+| `--dataset-name` | "Deep Research Bench" | Dataset name in LangSmith |
+| `--max-examples` | 2 (smoke) / all (full) | Maximum examples to evaluate |
+| `--experiment-prefix` | Auto-generated | Prefix for experiment name |
+| `--max-concurrency` | 2 | Maximum concurrent evaluations (max: 5) |
+| `--timeout-seconds` | 1800 | Per-example timeout (seconds) |
+| `--model` | From env/config | Model to use for evaluation |
+
+### Conservative Defaults
+
+To prevent runaway costs, the evaluation uses conservative defaults:
+
+- **Smoke test**: Only 2 examples
+- **Max concurrency**: 2 (can increase up to 5)
+- **Timeout**: 1800 seconds (30 minutes) per example
+
+### Cost Warning
+
+⚠️ **Full evaluation runs can be expensive!** A full run on the "Deep Research Bench" dataset can cost $50-200+ depending on the model used. Always:
+
+1. Run a smoke test first to validate setup
+2. Monitor LangSmith during the run
+3. Start with lower concurrency to control costs
+
+### Exporting Results
+
+After evaluation, export results to JSONL format:
+
+```bash
+# Export results using experiment project name
+python tests/extract_langsmith_data.py \
+  --project-name "deep-research-eval-smoke-20250204-120000" \
+  --model-name "gpt-4o" \
+  --output-dir tests/expt_results/
+
+# Force overwrite if file exists
+python tests/extract_langsmith_data.py \
+  --project-name "your-experiment-name" \
+  --model-name "claude-3-5-sonnet" \
+  --force
+```
+
+#### Export Options
+
+| Flag | Required | Default | Description |
+|------|----------|---------|-------------|
+| `--project-name` | **Yes** | - | LangSmith project name containing the experiment runs |
+| `--model-name` | **Yes** | - | Model name (used for output filename) |
+| `--dataset-name` | No | "Deep Research Bench" | Dataset name for validation |
+| `--output-dir` | No | `tests/expt_results/` | Output directory for JSONL file |
+| `--force` | No | `false` | Overwrite existing file if it exists |
 
 ---
 
