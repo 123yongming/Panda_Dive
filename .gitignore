@@ -59,3 +59,4 @@ src/test_ark_model.py
 src/test_structured_output.py
 tests/prompt/
 tests/test_parallel_eval.py
+nul
