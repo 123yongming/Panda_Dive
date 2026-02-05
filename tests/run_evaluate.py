@@ -55,9 +55,9 @@ logger = logging.getLogger(__name__)
 # Constants
 DEFAULT_DATASET_NAME = "Deep Research Bench"
 DEFAULT_TIMEOUT_SECONDS = 1800  # 30 minutes
-DEFAULT_MAX_CONCURRENCY = 2
-MAX_CONCURRENCY_CAP = 5
-DEFAULT_SMOKE_EXAMPLES = 2
+DEFAULT_MAX_CONCURRENCY = 1
+MAX_CONCURRENCY_CAP = 1
+DEFAULT_SMOKE_EXAMPLES = 1
 DATASET_ID_PATTERN = re.compile(r"[0-9a-fA-F-]{36}")
 
 
@@ -436,6 +436,7 @@ def get_eval_config() -> list[Any]:
         overall_quality_evaluator,
         relevance_evaluator,
         structure_evaluator,
+        supervisor_parallelism,
     )
 
     return [
@@ -445,6 +446,7 @@ def get_eval_config() -> list[Any]:
         correctness_evaluator,
         groundedness_evaluator,
         completeness_evaluator,
+        supervisor_parallelism,
     ]
 
 

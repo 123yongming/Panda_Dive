@@ -15,6 +15,7 @@ import os
 import re
 from typing import Any, cast
 
+from langsmith import Client
 from langsmith.evaluation import run_evaluator
 from langsmith.schemas import Example, Run
 from prompts import (
@@ -58,6 +59,9 @@ def _extract_eval_payloads(
 
     reference_outputs = example.outputs if example and example.outputs else None
     return inputs, normalized_outputs, reference_outputs
+
+
+SUPERVISOR_TOOL_NAMES = {"ConductResearch", "ResearchComplete", "think_tool"}
 
 
 def _get_evaluator_model(
@@ -168,6 +172,145 @@ def _format_input_query(inputs: dict[str, Any]) -> str:
         formatted_messages.append(format_template.format(content=content))
 
     return "\n\n".join(formatted_messages)
+
+
+def _extract_supervisor_tool_calls(outputs: dict[str, Any]) -> list[Any]:
+    output_payload = outputs.get("output")
+    if output_payload is None:
+        return []
+
+    values: dict[str, Any] | None = None
+    if isinstance(output_payload, dict):
+        values = (
+            output_payload.get("values")
+            if isinstance(output_payload.get("values"), dict)
+            else output_payload
+        )
+    else:
+        candidate = getattr(output_payload, "values", None)
+        if isinstance(candidate, dict):
+            values = candidate
+
+    if not values:
+        return []
+
+    supervisor_messages = values.get("supervisor_messages")
+    if not isinstance(supervisor_messages, list) or not supervisor_messages:
+        return []
+
+    last_message = supervisor_messages[-1]
+    tool_calls = None
+    if isinstance(last_message, dict):
+        tool_calls = last_message.get("tool_calls")
+    else:
+        tool_calls = getattr(last_message, "tool_calls", None)
+
+    return tool_calls if isinstance(tool_calls, list) else []
+
+
+def _extract_tool_calls_from_message(message: Any) -> list[Any]:
+    if message is None:
+        return []
+    if isinstance(message, dict):
+        tool_calls = message.get("tool_calls")
+        if isinstance(tool_calls, list):
+            return tool_calls
+        for key in ("additional_kwargs", "kwargs"):
+            extra = message.get(key)
+            if isinstance(extra, dict):
+                tool_calls = extra.get("tool_calls")
+                if isinstance(tool_calls, list):
+                    return tool_calls
+        return []
+
+    tool_calls = getattr(message, "tool_calls", None)
+    if isinstance(tool_calls, list):
+        return tool_calls
+    for attr in ("additional_kwargs", "kwargs"):
+        extra = getattr(message, attr, None)
+        if isinstance(extra, dict):
+            tool_calls = extra.get("tool_calls")
+            if isinstance(tool_calls, list):
+                return tool_calls
+    return []
+
+
+def _extract_tool_calls_from_outputs(outputs: dict[str, Any]) -> list[Any]:
+    if not isinstance(outputs, dict) or not outputs:
+        return []
+
+    tool_calls: list[Any] = []
+    tool_calls.extend(_extract_tool_calls_from_message(outputs.get("output")))
+
+    generations = outputs.get("generations")
+    if isinstance(generations, list):
+        for generation in generations:
+            generation_list = (
+                generation if isinstance(generation, list) else [generation]
+            )
+            for entry in generation_list:
+                message = None
+                if isinstance(entry, dict):
+                    message = entry.get("message")
+                else:
+                    message = getattr(entry, "message", None)
+                tool_calls.extend(_extract_tool_calls_from_message(message))
+
+    return tool_calls
+
+
+def _extract_supervisor_tool_calls_from_spans(spans: list[Run]) -> list[Any]:
+    supervisor_calls: list[Any] = []
+    for span in spans:
+        outputs = span.outputs
+        if not isinstance(outputs, dict) or not outputs:
+            continue
+        tool_calls = _extract_tool_calls_from_outputs(outputs)
+        if not tool_calls:
+            continue
+        for tool_call in tool_calls:
+            name = None
+            if isinstance(tool_call, dict):
+                name = tool_call.get("name")
+            else:
+                name = getattr(tool_call, "name", None)
+            if name in SUPERVISOR_TOOL_NAMES:
+                supervisor_calls.append(tool_call)
+    return supervisor_calls
+
+
+def _list_trace_spans(run: Run) -> list[Run]:
+    try:
+        client = Client()
+        runs = list(client.list_runs(trace_id=run.trace_id))
+    except Exception as exc:
+        logger.warning("Failed to list runs for trace %s: %s", run.trace_id, exc)
+        return []
+
+    return [
+        span
+        for span in runs
+        if span.parent_run_id is not None and span.start_time and span.end_time
+    ]
+
+
+def _calculate_overlap_ms(spans: list[Run]) -> int:
+    total_ms = 0
+    for i, span_a in enumerate(spans):
+        start_a = span_a.start_time
+        end_a = span_a.end_time
+        if start_a is None or end_a is None:
+            continue
+        for span_b in spans[i + 1 :]:
+            start_b = span_b.start_time
+            end_b = span_b.end_time
+            if start_b is None or end_b is None:
+                continue
+            overlap_start = max(start_a, start_b)
+            overlap_end = min(end_a, end_b)
+            if overlap_end > overlap_start:
+                total_ms += int((overlap_end - overlap_start).total_seconds() * 1000)
+    return total_ms
 
 
 class OverallQualityScore(BaseModel):
@@ -1017,3 +1160,39 @@ async def completeness_evaluator(run: Run, example: Example | None = None):
     """
     inputs, outputs, _ = _extract_eval_payloads(run, example)
     return await eval_completeness(inputs, outputs)
+
+
+@run_evaluator
+async def supervisor_parallelism(run: Run, example: Example | None = None):
+    """Evaluate supervisor tool call count and parallel span overlap."""
+    spans = _list_trace_spans(run)
+    tool_calls = _extract_supervisor_tool_calls_from_spans(spans)
+    outputs = run.outputs or {}
+    if not tool_calls:
+        tool_calls = _extract_supervisor_tool_calls(outputs)
+    actual_tool_calls = len(tool_calls)
+
+    expected_tool_calls = None
+    if example is not None:
+        reference_outputs = getattr(example, "reference_outputs", None)
+        if isinstance(reference_outputs, dict):
+            expected_tool_calls = reference_outputs.get("parallel")
+        if not isinstance(expected_tool_calls, int):
+            outputs = getattr(example, "outputs", None)
+            if isinstance(outputs, dict):
+                expected_tool_calls = outputs.get("parallel")
+    if not isinstance(expected_tool_calls, int):
+        expected_tool_calls = 0
+
+    parallel_overlap_ms = _calculate_overlap_ms(spans)
+
+    tool_call_count_match = actual_tool_calls == expected_tool_calls
+
+    return {
+        "value": tool_call_count_match,
+        "comment": (
+            "actual_tool_calls="
+            f"{actual_tool_calls}, expected_tool_calls={expected_tool_calls}, "
+            f"parallel_overlap_ms={parallel_overlap_ms}"
+        ),
+    }

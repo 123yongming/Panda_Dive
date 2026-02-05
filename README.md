@@ -372,6 +372,27 @@ python tests/run_evaluate.py --smoke --model openai:gpt-4o
 python tests/run_evaluate.py --smoke --max-concurrency 2 --timeout-seconds 1800
 ```
 
+### Supervisor Parallelism Evaluation
+
+This evaluation measures both intended parallelism (tool-call count) and observed parallelism (span overlap) for the supervisor.
+
+```bash
+# Create the dataset (one-time setup)
+python tests/create_supervisor_parallelism_dataset.py \
+  --dataset-name "Panda_Dive: Supervisor Parallelism" \
+  --source tests/prompt/supervisor_parallelism.jsonl
+
+# Run the evaluation
+python tests/run_evaluate.py \
+  --dataset-name "Panda_Dive: Supervisor Parallelism" \
+  --max-concurrency 1 \
+  --experiment-prefix "supervisor-parallel"
+```
+
+Metrics produced:
+- `tool_call_count_match`: Whether actual tool calls match the reference count
+- `parallel_overlap_ms`: Total overlap time (ms) across trace spans
+
 ### Full Evaluation
 
 Run a full evaluation on the entire dataset (⚠️ **Warning: Expensive!**):
