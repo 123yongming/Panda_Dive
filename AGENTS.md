@@ -18,9 +18,11 @@ python -m pytest
 python -m pytest -v
 python -m pytest --cov=Panda_Dive
 
-# Single test
-python -m pytest src/test_ark_model.py
-python -m pytest src/test_api.py::test_function_name
+# Single test file
+python -m pytest tests/test_parallel_eval.py
+
+# Single test function
+python -m pytest tests/test_parallel_eval.py::TestExtractSupervisorToolCalls
 
 # Lint (ruff)
 ruff check .
@@ -32,15 +34,18 @@ mypy src/Panda_Dive/
 
 ## Project Map
 
-- `src/Panda_Dive/deepresearcher.py` main graph orchestration, subgraphs compiled near file bottom
-- `src/Panda_Dive/configuration.py` configuration model, search API enum, validation
-- `src/Panda_Dive/state.py` TypedDict state definitions with reducers
-- `src/Panda_Dive/prompts.py` system prompts and templates
-- `src/Panda_Dive/utils.py` tool wrappers, model helpers, MCP loading
-- `src/Panda_Dive/retrieval_quality.py` query rewriting, scoring, reranking
-- `src/Panda_Dive/__init__.py` package exports
+| Component | File | Purpose |
+|-----------|------|---------|
+| **Main graph** | `src/Panda_Dive/deepresearcher.py` | Graph orchestration, supervisor & researcher subgraphs |
+| **Configuration** | `src/Panda_Dive/configuration.py` | `Configuration` model, `SearchAPI` enum, validation |
+| **State** | `src/Panda_Dive/state.py` | TypedDict states with `Annotated[...]` reducers |
+| **Prompts** | `src/Panda_Dive/prompts.py` | System prompts and templates |
+| **Utils** | `src/Panda_Dive/utils.py` | `create_chat_model()`, search APIs, MCP loading |
+| **Retrieval** | `src/Panda_Dive/retrieval_quality.py` | Query rewriting, scoring, reranking |
+| **Evaluators** | `tests/evaluators.py` | LLM-based evaluators for research quality |
+| **Tests** | `tests/test_*.py` | Unit tests for evaluators and components |
 
-## Code Style and Conventions
+## Code Style
 
 ### Python and Types
 - Python 3.10+ syntax only
@@ -72,79 +77,83 @@ from .utils import create_chat_model
 - Graph nodes: `snake_case`
 
 ### Docstrings and Comments
-- Google-style docstrings
-- English docstrings required; Chinese comments acceptable
+- Google-style docstrings (English required)
+- Chinese comments acceptable inline
 
-### LangGraph Patterns
+## LangGraph Patterns
+
 - Nodes return `Command(goto=..., update={...})`
 - Use `Command(goto=END, update={...})` for terminal nodes
 - State classes inherit `MessagesState`
 - List fields use `Annotated[list[T], override_reducer]`
-
-### Models and Structured Output
-- Use `create_chat_model()` from `utils.py` (do not call `init_chat_model` directly)
-- Check `supports_structured_output()` before `.with_structured_output(...)`
+- Use `create_chat_model()` from utils.py (never `init_chat_model` directly)
 - LLM calls chain `.with_retry(stop_after_attempt=3)`
 - Internal calls use `tags=["langsmith:nostream"]`
 
-### Error Handling
-- Use `try/except` around model calls and external API interactions
+## Error Handling
+
+- Use `try/except` around model calls and external APIs
 - Log with `logging.warning()` or `logging.exception()`
 - Use `is_token_limit_exceeded()` for token-limit handling
 
-### Async Patterns
+## Async Patterns
+
 - Use `asyncio.gather` for parallel tasks
 - Use `asyncio.wait_for` for timeouts
 - Use `asyncio.to_thread` for blocking work
 
-### Configuration
+## Configuration
+
 - Pydantic `BaseModel` with defaults and validation
 - Load runtime config via `Configuration.from_runnable_config(config)`
 - Environment variable checks via `os.getenv(...)`
 
-## Testing Guidelines
+## Testing
 
-- Tests live under `src/` with `test_` prefix
+- Tests live under `tests/` with `test_` prefix
 - Prefer `pytest` and `asyncio.run()` for async tests
 - Mock external API calls for unit tests
 
 ## Anti-Patterns
 
-- Never use `Optional[T]`
+- Never use `Optional[T]` - always `T | None`
 - Never call `deep_researcher.invoke()`; use async `ainvoke()`
 - Never mutate state directly; always return `Command(update={...})`
 - Never import or use `init_chat_model` directly
 - Never add sync graph nodes
 - Do not concatenate state lists without `override_reducer`
 
-## Tooling Configuration (pyproject.toml)
+## Tooling (pyproject.toml)
 
-- Ruff lint selects: `E`, `F`, `I`, `D`, `D401`, `T201`, `UP`
-- Ruff ignores: `UP006`, `UP007`, `UP035`, `D417`, `E501`
-- Pydocstyle convention: Google
-- pytest addopts: `--ignore=nul`
-- Build system: `setuptools` + `wheel`
+- Ruff lint: `E`, `F`, `I`, `D`, `D401`, `T201`, `UP`
+- Ruff ignore: `UP006`, `UP007`, `UP035`, `D417`, `E501`
+- Pydocstyle: Google convention
+- pytest: `--ignore=nul`
+- Build: `setuptools` + `wheel`
 
-## Evaluation (Optional, Costly)
+## Evaluation
 
 ```bash
 # Smoke test (2 examples)
 python tests/run_evaluate.py --smoke --dataset-name "deep_research_bench"
 python tests/run_evaluate.py --smoke --model openai:gpt-4o
-python tests/run_evaluate.py --smoke --max-concurrency 2 --timeout-seconds 1800
+
+# Supervisor parallelism evaluation
+python tests/run_evaluate.py \
+  --dataset-name "Panda_Dive: Supervisor Parallelism" \
+  --max-concurrency 1 \
+  --experiment-prefix "supervisor-parallel"
 
 # Full evaluation (expensive)
 python tests/run_evaluate.py --full
-python tests/run_evaluate.py --full --model anthropic:claude-3-5-sonnet-20241022
-python tests/run_evaluate.py --full --dataset-name "Custom Dataset" --experiment-prefix "my-experiment"
 
 # Export results
 python tests/extract_langsmith_data.py \
-  --project-name "deep-research-eval-smoke-20250204-120000" \
+  --project-name "deep-research-eval-..." \
   --model-name "gpt-4o" \
   --output-dir tests/expt_results/
 ```
 
 ## Cursor / Copilot Rules
 
-No `.cursor/rules/`, `.cursorrules`, or `.github/copilot-instructions.md` found in this repo.
+No `.cursor/rules/`, `.cursorrules`, or `.github/copilot-instructions.md` found.

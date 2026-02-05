@@ -210,6 +210,7 @@ def create_parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:
+    """Create the LangSmith dataset for supervisor parallelism evaluation."""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     parser = create_parser()
     args = parser.parse_args()
