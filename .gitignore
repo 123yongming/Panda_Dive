@@ -57,4 +57,5 @@ Thumbs.db
 src/test_ark_full.py
 src/test_ark_model.py
 src/test_structured_output.py
-tests/prompt/query.jsonl
+tests/prompt/
+tests/test_parallel_eval.py

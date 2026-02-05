@@ -3,5 +3,5 @@
 from .configuration import Configuration
 from .deepresearcher import deep_researcher
 
-__version__ = "2.0.0"
+__version__ = "3.0.0"
 __all__ = ["Configuration", "deep_researcher"]
