@@ -72,61 +72,162 @@ Configure different models for different research stages:
 
 ## 🏗️ Architecture
 
-Panda_Dive uses a sophisticated multi-agent graph architecture:
+Panda_Dive uses a sophisticated multi-agent graph architecture with three hierarchical layers: Main Graph (entry point), Supervisor Subgraph (orchestration), and Researcher Subgraph (execution).
+
+### Main Graph
+
+Entry point handling user interaction, research brief generation, and final report synthesis:
 
 ```mermaid
 graph TD
     START([START]) --> CLARIFY[clarify_with_user]
-    CLARIFY --> BRIEF[write_research_brief]
-    BRIEF --> SUPERVISOR[research_supervisor]
-    SUPERVISOR --> REPORT[final_report_generation]
+    
+    CLARIFY --"need_clarification=True"--> USER["🔄 Return to User<br/>with question"]
+    USER -->|User response| CLARIFY
+    
+    CLARIFY --"need_clarification=False"--> BRIEF[write_research_brief]
+    BRIEF --> SUPERVISOR["🧩 research_supervisor<br/>Subgraph Entry"]
+    
+    SUPERVISOR -->|All research<br/>completed| REPORT[final_report_generation]
     REPORT --> END([END])
-
-    style START fill:#e1f5ff
-    style END fill:#e1f5ff
-    style CLARIFY fill:#fff3cd
-    style BRIEF fill:#d4edda
-    style SUPERVISOR fill:#f8dce0
-    style REPORT fill:#cce5ff
+    
+    style START fill:#e1f5ff,stroke:#333,stroke-width:2px
+    style END fill:#e1f5ff,stroke:#333,stroke-width:2px
+    style CLARIFY fill:#fff3cd,stroke:#333
+    style BRIEF fill:#d4edda,stroke:#333
+    style SUPERVISOR fill:#f8dce0,stroke:#333,stroke-width:3px
+    style REPORT fill:#cce5ff,stroke:#333
+    style USER fill:#fff3cd,stroke:#666,stroke-dasharray: 5 5
 ```
 
 ### Supervisor Subgraph
 
-The supervisor manages research delegation dynamically:
+Orchestrates parallel research by dynamically spawning researcher subgraphs:
 
 ```mermaid
-graph LR
-    S[supervisor] --> ST{supervisor_tools}
-    ST -->|more tasks| S
-    ST -->|complete| DONE[Done]
-
-    style S fill:#f8dce0
-    style ST fill:#fff3cd
-    style DONE fill:#d4edda
+graph TB
+    subgraph SUPERVISOR["🧩 Supervisor Subgraph"]
+        START_S([START]) --> S[supervisor<br/>Lead Researcher]
+        
+        S --> ST{supervisor_tools<br/>Tool Router}
+        
+        %% Tool executions
+        ST -->|think_tool| THINK["💭 Strategic Reflection"]
+        THINK --> S
+        
+        ST -->|ConductResearch| SPAWN["🚀 Dynamic Subgraph Spawning"]
+        
+        %% Dynamic spawning detail
+        subgraph DYNAMIC["🔄 Dynamic Concurrency Control"]
+            SPAWN --> CHECK{"Within<br/>max_concurrent<br/>limit?"}
+            CHECK -->|Yes| RESEARCHER["🧩 researcher_subgraph<br/>(Instance N)"]
+            CHECK -->|No| OVERFLOW["⚠️ Overflow:<br/>Skip with error"]
+            RESEARCHER -->|async gather| COLLECT["📊 Collect Results"]
+            OVERFLOW --> COLLECT
+        end
+        
+        COLLECT --> UPDATE["📝 Update State:<br/>• notes<br/>• raw_notes"]
+        UPDATE --> S
+        
+        ST -->|ResearchComplete| DONE_S[Done]
+        
+        %% Loop conditions
+        ST -.->|Iterations <<br/>max_researcher<br/>_iterations| S
+    end
+    
+    style START_S fill:#e1f5ff
+    style DONE_S fill:#d4edda
+    style S fill:#f8dce0,stroke:#333,stroke-width:3px
+    style ST fill:#fff3cd,stroke:#333
+    style SPAWN fill:#d4edda,stroke:#333,stroke-width:2px
+    style DYNAMIC fill:#f0f8ff,stroke:#666,stroke-dasharray: 3 3
+    style RESEARCHER fill:#cce5ff,stroke:#333
 ```
 
 ### Researcher Subgraph
 
-Each researcher executes specialized research tasks:
+Executes individual research tasks with the 6-step retrieval quality loop:
 
 ```mermaid
-graph LR
-    R[researcher] --> RT{researcher_tools}
-    RT --> COMPRESS[compress_research]
-    COMPRESS --> DONE[Done]
-
-    style R fill:#cce5ff
-    style RT fill:#fff3cd
-    style COMPRESS fill:#d4edda
-    style DONE fill:#e1f5ff
+graph TB
+    subgraph RESEARCHER["🧩 Researcher Subgraph"]
+        START_R([START]) --> R[researcher<br/>Research Assistant]
+        
+        R --> RT{researcher_tools<br/>Tool Router}
+        
+        %% Tool executions
+        RT -->|think_tool| THINK_R["💭 Strategic<br/>Reflection"]
+        THINK_R --> R
+        
+        RT -->|Search Tool| RQL["🎯 Retrieval Quality Loop"]
+        
+        %% Retrieval Quality Loop detail
+        subgraph RQL_DETAIL["🔄 Query → Results → Score → Rerank"]
+            RQL --> REWRITE["1️⃣ Query Rewriting<br/>Generate N variants"]
+            REWRITE --> SEARCH["2️⃣ Search Execution<br/>tavily/duckduckgo"]
+            SEARCH --> PARSE["3️⃣ Result Parsing<br/>→ Structured dicts"]
+            PARSE --> SCORE["4️⃣ Relevance Scoring<br/>LLM: 0.0-1.0"]
+            SCORE --> RERANK["5️⃣ Reranking<br/>+ Source weight"]
+            RERANK --> FORMAT["6️⃣ Format Results<br/>For researcher"]
+            
+            %% State tracking
+            STATE["📊 State Tracking:<br/>• rewritten_queries<br/>• relevance_scores<br/>• reranked_results<br/>• quality_notes"]
+        end
+        
+        FORMAT --> UPDATE_R["📝 Update State"]
+        UPDATE_R --> R
+        
+        RT -->|MCP Tools| MCP["🔧 MCP Tools<br/>(Dynamic Loading)"]
+        MCP --> R
+        
+        RT -->|ResearchComplete| COMPRESS[compress_research]
+        
+        COMPRESS --> DONE_R[Done]
+        
+        %% Loop conditions
+        RT -.->|tool_calls <<br/>max_react<br/>_tool_calls| R
+    end
+    
+    style START_R fill:#e1f5ff
+    style DONE_R fill:#d4edda
+    style R fill:#cce5ff,stroke:#333,stroke-width:3px
+    style RT fill:#fff3cd,stroke:#333
+    style RQL fill:#f8dce0,stroke:#333,stroke-width:2px
+    style RQL_DETAIL fill:#fff5f5,stroke:#666,stroke-dasharray: 3 3
+    style RESEARCHER fill:#cce5ff,stroke:#333
+    style STATE fill:#f0f8ff,stroke:#999
 ```
+
+### Architecture Highlights
+
+| Layer | Components | Key Features |
+|-------|------------|--------------|
+| **Main Graph** | `clarify_with_user`, `write_research_brief`, `research_supervisor`, `final_report_generation` | User interaction, clarification loop, brief generation, report synthesis |
+| **Supervisor Subgraph** | `supervisor`, `supervisor_tools`, Dynamic Spawning | Parallel research orchestration, concurrency control (`max_concurrent_research_units`), async subgraph spawning |
+| **Researcher Subgraph** | `researcher`, `researcher_tools`, Retrieval Quality Loop, `compress_research` | Individual research execution, 6-step retrieval quality (rewrite → search → parse → score → rerank → format), MCP integration |
+
+### Data Flow
+
+```
+User Query 
+  → Main Graph (Clarification → Brief)
+  → Supervisor Subgraph (Parallel delegation)
+    → Researcher Subgraph Instance 1 (Quality Loop)
+    → Researcher Subgraph Instance 2 (Quality Loop)
+    → Researcher Subgraph Instance N (Quality Loop)
+  → Main Graph (Synthesis → Report)
+  → User
+```
+
+Each researcher subgraph executes the full retrieval quality loop: **Query Rewriting → Search Execution → Result Parsing → Relevance Scoring → Reranking → Result Formatting**, with all metrics tracked in state for observability.
+
 
 ---
 
 ## 📦 Installation
 
 ### Prerequisites
-- Python 3.10 or higher
+- Python 3.11 or higher
 - API keys for your chosen LLM provider(s)
 - (Optional) Tavily API key if using Tavily search (DuckDuckGo requires no API key)
 
@@ -172,13 +273,6 @@ source .venv/bin/activate
 
 # Install in editable mode
 pip install -e .
-```
-
-#### Development setup
-
-```bash
-# Install with development dependencies
-pip install -e ".[dev]"
 ```
 
 ### Configuration
@@ -233,31 +327,15 @@ result = deep_researcher.invoke(
 print(result["messages"][-1].content)
 ```
 
-### Using Different LLM Providers
+### Running with LangSmith
 
-```python
-# Use Anthropic Claude
-config = Configuration(model="anthropic:claude-3-5-sonnet-20241022")
+You can also run Panda_Dive as a LangGraph development server:
 
-# Use DeepSeek
-config = Configuration(model="deepseek:deepseek-chat")
-
-# Use Google VertexAI
-config = Configuration(model="google:gemini-2.0-flash-001")
+```bash
+uvx --refresh --from "langgraph-cli[inmem]" --with-editable . --python 3.11 langgraph dev --allow-blocking --host 0.0.0.0 --port 2026
 ```
 
-### Using Different Search APIs
-
-```python
-# DuckDuckGo (default) - privacy-friendly, no API key required
-config = Configuration(search_api="duckduckgo")
-
-# Tavily - requires API key but provides more detailed results
-config = Configuration(search_api="tavily")
-
-# ArXiv - for academic paper searches
-config = Configuration(search_api="arxiv")
-```
+This will start the development server on `http://localhost:2026` with in-memory storage, allowing you to interact with the deep researcher through the LangSmith UI.
 
 ---
 
@@ -277,33 +355,6 @@ config = Configuration(search_api="arxiv")
 | `relevance_threshold` | float | `0.7` | Minimum relevance score threshold |
 | `rerank_top_k` | int | `10` | Number of documents after reranking |
 | `rerank_weight_source` | str | `"auto"` | Source weighting strategy for reranking |
-
-### Advanced Configuration
-
-```python
-# Using DuckDuckGo (default, no API key required)
-config = Configuration(
-    search_api="duckduckgo",  # Privacy-friendly, no API key needed
-    max_researcher_iterations=8,
-    max_concurrent_research_units=8,
-)
-
-# Using Tavily (requires API key, but provides richer results)
-config = Configuration(
-    search_api="tavily",
-    max_researcher_iterations=8,
-    max_concurrent_research_units=8,
-    
-    # Different models for different stages
-    model="openai:gpt-4o",                    # Research model
-    compress_model="anthropic:claude-3-5-sonnet",  # Compression
-    summarize_model="openai:gpt-4o-mini",    # Summarization
-    report_model="openai:gpt-4o",             # Final report
-
-    # Clarification
-    allow_clarification=False,  # Skip questions for speed
-)
-```
 
 ---
 
@@ -334,12 +385,6 @@ config = Configuration(
 
 ---
 
-## 📚 Documentation
-
-- Retrieval Quality Loop (Phase 1): [docs/retrieval-quality-loop.md](docs/retrieval-quality-loop.md)
-
----
-
 ## 🧪 Evaluation
 
 Panda_Dive includes a comprehensive evaluation framework using LangSmith to benchmark the deep research system against the "Deep Research Bench" dataset.
@@ -365,11 +410,6 @@ Run a quick smoke test on 2 examples to validate the setup:
 # Basic smoke test (2 examples, default settings)
 python tests/run_evaluate.py --smoke --dataset-name "deep_research_bench"
 
-# Smoke test with specific model
-python tests/run_evaluate.py --smoke --model openai:gpt-4o
-
-# Smoke test with custom concurrency and timeout
-python tests/run_evaluate.py --smoke --max-concurrency 2 --timeout-seconds 1800
 ```
 
 ### Supervisor Parallelism Evaluation
@@ -401,11 +441,6 @@ Run a full evaluation on the entire dataset (⚠️ **Warning: Expensive!**):
 # Full evaluation (all dataset examples)
 python tests/run_evaluate.py --full
 
-# Full evaluation with custom model
-python tests/run_evaluate.py --full --model anthropic:claude-3-5-sonnet-20241022
-
-# Full evaluation with custom dataset and experiment prefix
-python tests/run_evaluate.py --full --dataset-name "Custom Dataset" --experiment-prefix "my-experiment"
 ```
 
 ### Configuration Options
@@ -421,13 +456,6 @@ python tests/run_evaluate.py --full --dataset-name "Custom Dataset" --experiment
 | `--timeout-seconds` | 1800 | Per-example timeout (seconds) |
 | `--model` | From env/config | Model to use for evaluation |
 
-### Conservative Defaults
-
-To prevent runaway costs, the evaluation uses conservative defaults:
-
-- **Smoke test**: Only 2 examples
-- **Max concurrency**: 2 (can increase up to 5)
-- **Timeout**: 1800 seconds (30 minutes) per example
 
 ### Cost Warning
 
