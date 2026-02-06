@@ -82,6 +82,7 @@ def create_chat_model(
     api_key: str,
     tags: list[str] | None = None,
     streaming: bool = False,
+    retry_attempts: int = 3,
 ) -> BaseChatModel:
     """创建聊天模型实例，支持 ark 等需要特殊参数的模型.
 
@@ -90,9 +91,11 @@ def create_chat_model(
         max_tokens: 最大 token 数
         api_key: API 密钥
         tags: 标签列表
+        streaming: 是否启用流式输出
+        retry_attempts: 重试次数（默认3次），用于处理429等速率限制错误
 
     Returns:
-        初始化好的聊天模型实例
+        初始化好的聊天模型实例（已配置重试）
     """
     model_params = get_init_chat_model_params(model_name)
     init_params = {
@@ -110,7 +113,16 @@ def create_chat_model(
     logging.info(f"API Key: {api_key[:10] if api_key else 'None'}...")
     logging.info(f"Model params: {model_params}")
 
-    return init_chat_model(**init_params)
+    model = init_chat_model(**init_params)
+
+    if retry_attempts > 0:
+        model = model.with_retry(
+            stop_after_attempt=retry_attempts,
+            wait_exponential_jitter=True,
+            retry_if_exception_type=(Exception,),
+        )
+
+    return model
 
 
 ######
@@ -171,9 +183,9 @@ async def tavily_search(
         max_tokens=configurable.summarization_model_max_tokens,
         api_key=model_api_key,
         tags=["langsmith:nostream"],
+        retry_attempts=0,
     )
 
-    # 检查是否支持 structured output
     if supports_structured_output(configurable.summarization_model):
         summarization_model = model.with_structured_output(Summary).with_retry(
             stop_after_attempt=configurable.max_structured_output_retries

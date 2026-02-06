@@ -92,15 +92,14 @@ async def clarify_with_user(
         max_tokens=configurable.research_model_max_tokens,
         api_key=get_api_key_for_model(configurable.research_model, config),
         tags=["langsmith:nostream"],
+        retry_attempts=0,
     )
 
-    # 检查是否支持 structured output
     if supports_structured_output(configurable.research_model):
         clarification_model = model.with_structured_output(ClarifyWithUser).with_retry(
             stop_after_attempt=configurable.max_structured_output_retries
         )
     else:
-        # 对于不支持 structured output 的模型，使用 JSON 解析
         clarification_model = model.with_retry(
             stop_after_attempt=configurable.max_structured_output_retries
         )
@@ -186,9 +185,9 @@ async def write_research_brief(
         max_tokens=configurable.research_model_max_tokens,
         api_key=get_api_key_for_model(configurable.research_model, config),
         tags=["langsmith:nostream"],
+        retry_attempts=0,
     )
 
-    # 检查是否支持 structured output
     if supports_structured_output(configurable.research_model):
         research_model = model.with_structured_output(ResearchQuestion).with_retry(
             stop_after_attempt=configurable.max_structured_output_retries
@@ -268,6 +267,7 @@ async def supervisor(
             max_tokens=configurable.research_model_max_tokens,
             api_key=get_api_key_for_model(configurable.research_model, config),
             tags=["langsmith:nostream"],
+            retry_attempts=0,
         )
         .bind_tools(lead_researcher_tools)
         .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
@@ -476,6 +476,7 @@ async def researcher(
             max_tokens=configurable.research_model_max_tokens,
             api_key=get_api_key_for_model(configurable.research_model, config),
             tags=["langsmith:nostream"],
+            retry_attempts=0,
         )
         .bind_tools(tools)
         .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
@@ -549,6 +550,7 @@ async def researcher_tools(
         max_tokens=configurable.research_model_max_tokens,
         api_key=get_api_key_for_model(configurable.research_model, config),
         tags=["langsmith:nostream"],
+        retry_attempts=configurable.max_structured_output_retries,
     )
     tool_calls = most_recent_message.tool_calls
     rewritten_queries: list[str] = []
@@ -684,23 +686,21 @@ async def compress_research(state: ResearcherState, config: RunnableConfig):
     返回:
         字典，包含压缩后的研究摘要和原始笔记
     """
-    # 1、配置压缩模型
     configurable = Configuration.from_runnable_config(config)
     synthesizer_model = create_chat_model(
         model_name=configurable.compression_model,
         max_tokens=configurable.compression_model_max_tokens,
         api_key=get_api_key_for_model(configurable.compression_model, config),
         tags=["langsmith:nostream"],
+        retry_attempts=configurable.max_structured_output_retries,
     )
-    # 2、准备压缩提示
     researcher_messages = state.get("researcher_messages", [])
     researcher_messages.append(
         HumanMessage(content=compress_research_simple_human_message)
     )
-    # 3、调用压缩模型
-    synthesis_attempts = 0
-    max_attempts = 3
-    while synthesis_attempts < max_attempts:
+    token_limit_retries = 0
+    max_token_limit_retries = 3
+    while token_limit_retries < max_token_limit_retries:
         try:
             compression_prompt = compress_research_system_prompt.format(
                 date=get_today_str()
@@ -720,11 +720,11 @@ async def compress_research(state: ResearcherState, config: RunnableConfig):
                 "raw_notes": [raw_notes_content],
             }
         except Exception as e:
-            synthesis_attempts += 1
             if is_token_limit_exceeded(e, configurable.research_model):
+                token_limit_retries += 1
                 researcher_messages = remove_up_to_last_ai_message(researcher_messages)
                 continue
-            continue
+            raise
     # 4、处理失败情况
     raw_notes_content = "\n".join(
         [
@@ -774,19 +774,18 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
     notes = state.get("notes", [])
     cleared_state = {"notes": {"type": "override", "value": []}}
     findings = "\n".join(notes)
-    # 2、配置报告生成模型
     configurable = Configuration.from_runnable_config(config)
     writer_model = create_chat_model(
         model_name=configurable.final_report_model,
         max_tokens=configurable.final_report_model_max_tokens,
         api_key=get_api_key_for_model(configurable.final_report_model, config),
         tags=["langsmith:nostream"],
+        retry_attempts=configurable.max_structured_output_retries,
     )
-    # 3、调用报告生成模型
-    max_retries = 3
-    current_retry = 0
+    max_token_retries = 3
+    current_token_retry = 0
     findings_token_limit = None
-    while current_retry <= max_retries:
+    while current_token_retry <= max_token_retries:
         try:
             final_report_prompt = final_report_generation_prompt.format(
                 research_brief=state.get("research_brief", ""),
@@ -804,8 +803,8 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
             }
         except Exception as e:
             if is_token_limit_exceeded(e, configurable.final_report_model):
-                current_retry += 1
-                if current_retry == 1:
+                current_token_retry += 1
+                if current_token_retry == 1:
                     model_token_limit = get_model_token_limit(
                         configurable.final_report_model
                     )
@@ -833,9 +832,9 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
                     **cleared_state,
                 }
     return {
-        "final_report": "Error generating final report: Maximum retries exceeded",
+        "final_report": "Error generating final report: Maximum token retries exceeded",
         "messages": [
-            AIMessage(content="Report generation failed after maximum retries")
+            AIMessage(content="Report generation failed after maximum token retries")
         ],
         **cleared_state,
     }
