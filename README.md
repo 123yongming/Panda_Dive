@@ -15,6 +15,8 @@ A powerful multi-agent deep research tool built with LangGraph and LangChain. Pa
 
 ## 📑 Table of Contents
 - [Features](#-features)
+- [Recent Updates](#-recent-updates)
+- [Showcase](#-showcase)
 - [Architecture](#-architecture)
 - [Installation](#-installation)
 - [Quick Start](#-quick-start)
@@ -67,6 +69,34 @@ Configure different models for different research stages:
 - **Relevance Scoring**: Score each result on a 0.0-1.0 scale
 - **Reranking**: Prioritize higher-quality sources before synthesis
 - **Robust Error Handling**: Graceful handling of connection issues for DuckDuckGo searches
+
+---
+
+## 🆕 Recent Updates
+
+- Added a polished local frontend demo view for Panda_Dive research workflows
+- Added a complete sample context research report for quick output reference
+- Updated README with visual showcase and direct links to example assets
+
+---
+
+## 🖼️ Showcase
+
+### Frontend Effect Demo
+
+![Panda_Dive frontend demo](image/front%20image.png)
+
+### Panda_Dive Research Output Example
+
+- Sample report: [example/context research report.md](example/context%20research%20report.md)
+
+> Preview topic: **Systematic Investigation of Context in LLM-based Agent Systems**
+>
+> The sample report demonstrates:
+> - Conceptual overview and context taxonomy
+> - Design patterns (dispatcher, state channels, event sourcing)
+> - Multi-agent context lifecycle, trade-offs, and failure modes
+> - Open challenges and research directions for 2025-2026
 
 ---
 

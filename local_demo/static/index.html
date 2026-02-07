@@ -1,0 +1,600 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Panda Dive Local Demo</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Manrope:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg-deep: #081a1e;
+        --bg-ink: #10282d;
+        --bg-card: rgba(255, 255, 255, 0.08);
+        --line-soft: rgba(255, 255, 255, 0.14);
+        --text-main: #ecf5f4;
+        --text-muted: #b7cdca;
+        --accent: #ffba49;
+        --accent-2: #31d0b5;
+        --danger: #ff7d7d;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "Manrope", sans-serif;
+        color: var(--text-main);
+        background:
+          radial-gradient(circle at 12% 16%, rgba(49, 208, 181, 0.26), transparent 30%),
+          radial-gradient(circle at 82% 14%, rgba(255, 186, 73, 0.2), transparent 36%),
+          linear-gradient(160deg, var(--bg-deep), var(--bg-ink));
+      }
+
+      .grain {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        opacity: 0.07;
+        background-image:
+          linear-gradient(to right, rgba(255, 255, 255, 0.09) 1px, transparent 1px),
+          linear-gradient(to bottom, rgba(255, 255, 255, 0.09) 1px, transparent 1px);
+        background-size: 3px 3px;
+      }
+
+      .shell {
+        width: min(1160px, 92vw);
+        margin: 38px auto;
+        display: grid;
+        gap: 18px;
+        grid-template-columns: 1.1fr 0.9fr;
+        animation: rise 520ms ease-out both;
+      }
+
+      @keyframes rise {
+        from {
+          transform: translateY(12px);
+          opacity: 0;
+        }
+        to {
+          transform: translateY(0);
+          opacity: 1;
+        }
+      }
+
+      .panel {
+        background: var(--bg-card);
+        border: 1px solid var(--line-soft);
+        border-radius: 18px;
+        backdrop-filter: blur(14px);
+        box-shadow: 0 12px 36px rgba(0, 0, 0, 0.22);
+      }
+
+      .input-panel {
+        padding: 22px;
+      }
+
+      .title {
+        margin: 0;
+        font-family: "Fraunces", serif;
+        font-size: clamp(1.8rem, 3vw, 2.4rem);
+        line-height: 1.1;
+        letter-spacing: 0.01em;
+      }
+
+      .subtitle {
+        margin: 10px 0 18px;
+        color: var(--text-muted);
+      }
+
+      textarea,
+      input,
+      select {
+        width: 100%;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        background: rgba(0, 0, 0, 0.28);
+        color: var(--text-main);
+        padding: 12px 13px;
+        font: inherit;
+      }
+
+      textarea {
+        min-height: 152px;
+        resize: vertical;
+      }
+
+      label {
+        display: block;
+        margin: 13px 0 7px;
+        color: #d8e8e5;
+        font-weight: 600;
+      }
+
+      .settings-grid {
+        margin-top: 10px;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .toggle {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 12px;
+        font-size: 0.95rem;
+      }
+
+      .actions {
+        margin-top: 16px;
+        display: flex;
+        gap: 10px;
+      }
+
+      button {
+        border: 0;
+        border-radius: 12px;
+        padding: 11px 15px;
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+        transition: transform 180ms ease, filter 180ms ease;
+      }
+
+      button:hover {
+        transform: translateY(-1px);
+        filter: brightness(1.04);
+      }
+
+      .btn-main {
+        background: linear-gradient(125deg, var(--accent), #ffd37e);
+        color: #2d1a00;
+      }
+
+      .btn-sub {
+        background: rgba(255, 255, 255, 0.16);
+        color: var(--text-main);
+      }
+
+      .right-col {
+        display: grid;
+        gap: 18px;
+        grid-template-rows: auto 1fr;
+      }
+
+      .status-card {
+        padding: 18px;
+      }
+
+      .status-line {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .chip {
+        padding: 6px 10px;
+        border-radius: 999px;
+        border: 1px solid var(--line-soft);
+        font-size: 0.86rem;
+      }
+
+      .timeline {
+        margin: 14px 0 0;
+        padding: 0;
+        list-style: none;
+        display: grid;
+        gap: 8px;
+        max-height: 250px;
+        overflow-y: auto;
+      }
+
+      .timeline li {
+        padding: 9px 11px;
+        border-radius: 10px;
+        background: rgba(0, 0, 0, 0.2);
+        color: var(--text-muted);
+        font-size: 0.9rem;
+        animation: slideIn 0.3s ease-out;
+      }
+
+      @keyframes slideIn {
+        from {
+          opacity: 0;
+          transform: translateX(-10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateX(0);
+        }
+      }
+
+      .timeline li.running {
+        background: rgba(255, 186, 73, 0.2);
+        border-left: 3px solid var(--accent);
+      }
+
+      .timeline li.completed {
+        background: rgba(49, 208, 181, 0.2);
+        border-left: 3px solid var(--accent-2);
+      }
+
+      .timeline li.error {
+        background: rgba(255, 125, 125, 0.2);
+        border-left: 3px solid var(--danger);
+      }
+
+      .report-card {
+        padding: 18px;
+        display: grid;
+        gap: 14px;
+      }
+
+      .report-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .report {
+        min-height: 260px;
+        max-height: 56vh;
+        overflow: auto;
+        border: 1px solid var(--line-soft);
+        border-radius: 12px;
+        padding: 14px;
+        background: rgba(0, 0, 0, 0.24);
+        white-space: pre-wrap;
+        line-height: 1.56;
+      }
+
+      .citations {
+        display: grid;
+        gap: 8px;
+      }
+
+      .citation {
+        color: var(--accent-2);
+        text-decoration: none;
+        border-bottom: 1px dashed rgba(49, 208, 181, 0.55);
+        width: fit-content;
+      }
+
+      .error {
+        color: var(--danger);
+        margin-top: 8px;
+        min-height: 1.2em;
+      }
+
+      @media (max-width: 980px) {
+        .shell {
+          grid-template-columns: 1fr;
+          margin: 22px auto;
+        }
+
+        .report {
+          max-height: 42vh;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .shell,
+        button {
+          animation: none;
+          transition: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="grain"></div>
+    <main class="shell" data-testid="workbench-shell">
+      <section class="panel input-panel">
+        <h1 class="title">Panda Dive Research Atelier</h1>
+        <p class="subtitle">本地 Demo。输入研究主题，生成深度研究报告并自动提取引用链接。</p>
+
+        <label for="topic">研究主题</label>
+        <textarea id="topic" name="topic" placeholder="例如：2026 年 Agentic AI 在企业软件的落地格局"></textarea>
+
+        <div class="settings-grid">
+          <div>
+            <label for="search_api">Search API</label>
+            <select id="search_api">
+              <option value="duckduckgo">DuckDuckGo</option>
+              <option value="tavily">Tavily</option>
+              <option value="none">None</option>
+            </select>
+          </div>
+          <div>
+            <label for="max_researcher_iterations">迭代次数</label>
+            <input id="max_researcher_iterations" type="number" min="1" max="8" value="4" />
+          </div>
+          <div>
+            <label for="max_concurrent_research_units">并发研究数</label>
+            <input id="max_concurrent_research_units" type="number" min="1" max="8" value="3" />
+          </div>
+          <div>
+            <label for="query_variants">查询变体数</label>
+            <input id="query_variants" type="number" min="1" max="6" value="3" />
+          </div>
+          <div>
+            <label for="relevance_threshold">相关性阈值 (0-1)</label>
+            <input id="relevance_threshold" type="number" step="0.05" min="0" max="1" value="0.7" />
+          </div>
+          <div>
+            <label for="rerank_top_k">重排 Top K</label>
+            <input id="rerank_top_k" type="number" min="1" max="20" value="10" />
+          </div>
+        </div>
+
+        <label class="toggle">
+          <input id="allow_clarification" type="checkbox" />
+          <span>允许澄清问题（可能增加耗时）</span>
+        </label>
+
+        <div class="actions">
+          <button id="start-btn" class="btn-main" data-testid="start-research">开始研究</button>
+          <button id="clear-btn" class="btn-sub" type="button">清空</button>
+        </div>
+        <div id="error" class="error" data-testid="topic-error"></div>
+      </section>
+
+      <section class="right-col">
+        <article class="panel status-card">
+          <div class="status-line">
+            <strong>运行状态</strong>
+            <span id="status-chip" class="chip">idle</span>
+          </div>
+          <ul id="timeline" class="timeline" data-testid="run-progress"></ul>
+        </article>
+
+        <article class="panel report-card">
+          <div class="report-toolbar">
+            <strong>最终报告</strong>
+            <button id="download-btn" class="btn-sub" type="button" data-testid="export-markdown">导出 .md</button>
+          </div>
+          <div id="report" class="report" data-testid="final-report">报告将显示在这里...</div>
+          <div id="citations" class="citations" data-testid="citation-rail"></div>
+        </article>
+      </section>
+    </main>
+
+    <script>
+      const topicInput = document.getElementById("topic");
+      const errorLine = document.getElementById("error");
+      const statusChip = document.getElementById("status-chip");
+      const timeline = document.getElementById("timeline");
+      const report = document.getElementById("report");
+      const citations = document.getElementById("citations");
+      const startBtn = document.getElementById("start-btn");
+      const clearBtn = document.getElementById("clear-btn");
+      const downloadBtn = document.getElementById("download-btn");
+
+      let latestReport = "";
+      let eventSource = null;
+
+      function addTimeline(message, type = "normal") {
+        const item = document.createElement("li");
+        item.textContent = message;
+        item.className = type;
+        timeline.prepend(item);
+      }
+
+      function updateTimelineStatus(index, status) {
+        const items = timeline.querySelectorAll("li");
+        if (items[index]) {
+          items[index].className = status;
+        }
+      }
+
+      function setStatus(status) {
+        statusChip.textContent = status;
+        statusChip.className = "chip " + status;
+      }
+
+      function parseLinks(text) {
+        const matched = text.match(/https?:\/\/[^\s)\]]+/g) || [];
+        const unique = [...new Set(matched)];
+        citations.innerHTML = "";
+        if (!unique.length) {
+          citations.textContent = "未检测到显式引用链接。";
+          return;
+        }
+        unique.slice(0, 12).forEach((url, index) => {
+          const a = document.createElement("a");
+          a.className = "citation";
+          a.href = url;
+          a.target = "_blank";
+          a.rel = "noopener noreferrer";
+          a.dataset.citationId = String(index + 1);
+          a.textContent = `[${index + 1}] ${url}`;
+          citations.appendChild(a);
+        });
+      }
+
+      function collectSettings() {
+        return {
+          search_api: document.getElementById("search_api").value,
+          max_researcher_iterations: Number(document.getElementById("max_researcher_iterations").value),
+          max_concurrent_research_units: Number(document.getElementById("max_concurrent_research_units").value),
+          query_variants: Number(document.getElementById("query_variants").value),
+          relevance_threshold: Number(document.getElementById("relevance_threshold").value),
+          rerank_top_k: Number(document.getElementById("rerank_top_k").value),
+          allow_clarification: document.getElementById("allow_clarification").checked,
+        };
+      }
+
+      function connectToEventStream(jobId) {
+        const sseUrl = `/api/research/stream/${jobId}`;
+        eventSource = new EventSource(sseUrl);
+
+        eventSource.onopen = () => {
+          console.log("SSE connection opened");
+          setStatus("streaming");
+        };
+
+        eventSource.addEventListener("research_started", (e) => {
+          const data = JSON.parse(e.data);
+          addTimeline(data.message || "研究开始", "running");
+          setStatus("running");
+        });
+
+        eventSource.addEventListener("node_start", (e) => {
+          const data = JSON.parse(e.data);
+          addTimeline(`开始: ${data.node}`, "running");
+        });
+
+        eventSource.addEventListener("node_end", (e) => {
+          const data = JSON.parse(e.data);
+          addTimeline(`完成: ${data.node}`, "completed");
+        });
+
+        eventSource.addEventListener("tool_start", (e) => {
+          const data = JSON.parse(e.data);
+          addTimeline(`工具: ${data.tool}`, "running");
+        });
+
+        eventSource.addEventListener("tool_end", (e) => {
+          const data = JSON.parse(e.data);
+          addTimeline(`工具完成: ${data.tool}`, "completed");
+        });
+
+        eventSource.addEventListener("llm_start", (e) => {
+          const data = JSON.parse(e.data);
+          addTimeline("LLM 调用中...", "running");
+        });
+
+        eventSource.addEventListener("llm_end", (e) => {
+          const data = JSON.parse(e.data);
+          addTimeline("LLM 完成", "completed");
+        });
+
+        eventSource.addEventListener("research_completed", (e) => {
+          const data = JSON.parse(e.data);
+          latestReport = data.final_report || "";
+          report.textContent = latestReport || "没有生成报告内容";
+          parseLinks(latestReport);
+          addTimeline("研究完成!", "completed");
+          setStatus("completed");
+          
+          if (eventSource) {
+            eventSource.close();
+            eventSource = null;
+          }
+          startBtn.disabled = false;
+        });
+
+        eventSource.addEventListener("research_error", (e) => {
+          const data = JSON.parse(e.data);
+          addTimeline(`错误: ${data.error}`, "error");
+          setStatus("error");
+          errorLine.textContent = data.error;
+          
+          if (eventSource) {
+            eventSource.close();
+            eventSource = null;
+          }
+          startBtn.disabled = false;
+        });
+
+        eventSource.onerror = (error) => {
+          console.error("SSE error:", error);
+          if (eventSource.readyState === EventSource.CLOSED) {
+            addTimeline("连接已关闭", "completed");
+          } else {
+            addTimeline("连接错误，请重试", "error");
+            setStatus("error");
+            startBtn.disabled = false;
+          }
+        };
+      }
+
+      startBtn.addEventListener("click", async () => {
+        const topic = topicInput.value.trim();
+        if (!topic) {
+          errorLine.textContent = "topic required";
+          return;
+        }
+
+        errorLine.textContent = "";
+        startBtn.disabled = true;
+        timeline.innerHTML = "";
+        setStatus("starting");
+        report.textContent = "正在启动研究...";
+        citations.textContent = "";
+        latestReport = "";
+
+        try {
+          const response = await fetch("/api/research", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ topic, settings: collectSettings() }),
+          });
+
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || "Failed to start research");
+          }
+
+          const data = await response.json();
+          const jobId = data.job_id;
+
+          if (!jobId) {
+            throw new Error("No job ID received");
+          }
+
+          addTimeline("研究任务已创建，连接实时流...", "running");
+          
+          connectToEventStream(jobId);
+
+        } catch (error) {
+          report.textContent = "";
+          citations.textContent = "";
+          setStatus("failed");
+          addTimeline("启动失败，请检查配置");
+          errorLine.textContent = String(error.message || error);
+          startBtn.disabled = false;
+        }
+      });
+
+      clearBtn.addEventListener("click", () => {
+        topicInput.value = "";
+        report.textContent = "报告将显示在这里...";
+        citations.textContent = "";
+        timeline.innerHTML = "";
+        errorLine.textContent = "";
+        latestReport = "";
+        setStatus("idle");
+        
+        if (eventSource) {
+          eventSource.close();
+          eventSource = null;
+        }
+      });
+
+      downloadBtn.addEventListener("click", () => {
+        if (!latestReport.trim()) {
+          errorLine.textContent = "当前没有可导出的报告";
+          return;
+        }
+        const blob = new Blob([latestReport], { type: "text/markdown;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = "panda_dive_report.md";
+        anchor.click();
+        URL.revokeObjectURL(url);
+      });
+    </script>
+  </body>
+</html>
