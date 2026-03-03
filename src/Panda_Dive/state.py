@@ -38,6 +38,9 @@ class AgentState(MessagesState):
     research_brief: str | None
     raw_notes: Annotated[list[str], override_reducer] = []
     notes: Annotated[list[str], override_reducer] = []
+    steering_history: Annotated[list[str], override_reducer] = []
+    steering_last_command: str | None = None
+    steering_warnings: Annotated[list[str], override_reducer] = []
     final_report: str
 
 
@@ -49,6 +52,9 @@ class SupervisorState(MessagesState):
     raw_notes: Annotated[list[str], override_reducer] = []
     notes: Annotated[list[str], override_reducer] = []
     research_iterations: int = 0
+    steering_history: Annotated[list[str], override_reducer] = []
+    steering_last_command: str | None = None
+    steering_warnings: Annotated[list[str], override_reducer] = []
 
 
 class ResearcherState(MessagesState):

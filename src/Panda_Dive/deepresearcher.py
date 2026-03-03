@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from typing import Literal
+from typing import Any, Literal
 
 from langchain_core.messages import (
     AIMessage,
@@ -14,7 +14,7 @@ from langchain_core.messages import (
 )
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
-from langgraph.types import Command
+from langgraph.types import Command, interrupt
 
 from .configuration import Configuration
 from .prompts import (
@@ -217,24 +217,219 @@ async def write_research_brief(
             )
 
     # 4、使用研究简报初始化supervisor模型
-    supervisor_system_prompt = lead_researcher_prompt.format(
-        date=get_today_str(),
-        max_concurrent_research_units=configurable.max_concurrent_research_units,
-        max_researcher_iterations=configurable.max_researcher_iterations,
-    )
     return Command(
         goto="research_supervisor",
         update={
             "research_brief": research_brief,
             "supervisor_messages": {
                 "type": "override",
-                "value": [
-                    SystemMessage(content=supervisor_system_prompt),
-                    HumanMessage(content=research_brief),
-                ],
+                "value": _build_supervisor_seed_messages(research_brief, configurable),
             },
         },
     )
+
+
+def _parse_steering_command(
+    raw_command: Any,
+    steering_command_prefix: str,
+    steering_continue_command: str,
+) -> dict[str, str | None]:
+    """Parse user steering command from interrupt resume input."""
+    command = "" if raw_command is None else str(raw_command).strip()
+    steer_prefix = steering_command_prefix.strip()
+    continue_command = steering_continue_command.strip()
+    command_lower = command.lower()
+    steer_prefix_lower = steer_prefix.lower()
+    continue_lower = continue_command.lower()
+
+    if command_lower == continue_lower:
+        return {"action": "continue", "directive": None, "warning": None}
+
+    if command_lower.startswith(steer_prefix_lower):
+        directive = command[len(steer_prefix) :].strip()
+        if directive:
+            return {"action": "steer", "directive": directive, "warning": None}
+        return {
+            "action": "continue",
+            "directive": None,
+            "warning": (
+                "Steering command missing directive. "
+                f"Use '{steer_prefix} <instruction>' or '{continue_command}'."
+            ),
+        }
+
+    return {
+        "action": "continue",
+        "directive": None,
+        "warning": (
+            "Invalid steering command. "
+            f"Use '{steer_prefix} <instruction>' or '{continue_command}'."
+        ),
+    }
+
+
+def _apply_steering_directive_to_brief(research_brief: str, directive: str) -> str:
+    """Append a deterministic steering section to the research brief."""
+    clean_brief = (research_brief or "").rstrip()
+    clean_directive = directive.strip()
+    if not clean_directive:
+        return clean_brief
+
+    steering_block = (
+        "\n\n[Steering Update]\n"
+        f"- {clean_directive}"
+    )
+    return f"{clean_brief}{steering_block}"
+
+
+def _message_content(message: Any) -> str:
+    """Extract content text from different message representations."""
+    if isinstance(message, dict):
+        return str(message.get("content", "")).strip()
+    return str(getattr(message, "content", "")).strip()
+
+
+def _is_human_message(message: Any) -> bool:
+    """Check whether a message is a human/user message."""
+    if isinstance(message, dict):
+        role = str(message.get("role", "")).lower()
+        msg_type = str(message.get("type", "")).lower()
+        return role in {"user", "human"} or msg_type == "human"
+    return str(getattr(message, "type", "")).lower() == "human"
+
+
+def _build_supervisor_seed_messages(
+    research_brief: str, configurable: Configuration
+) -> list[Any]:
+    """Build minimal supervisor context with system prompt and brief."""
+    supervisor_system_prompt = lead_researcher_prompt.format(
+        date=get_today_str(),
+        max_concurrent_research_units=configurable.max_concurrent_research_units,
+        max_researcher_iterations=configurable.max_researcher_iterations,
+    )
+    return [
+        SystemMessage(content=supervisor_system_prompt),
+        HumanMessage(content=research_brief),
+    ]
+
+
+def _replace_brief_message_in_supervisor_messages(
+    supervisor_messages: list[Any],
+    old_brief: str,
+    updated_brief: str,
+) -> dict[str, Any]:
+    """Replace existing brief message in supervisor history, if present."""
+    if not supervisor_messages:
+        return {"messages": [], "replaced": False, "warning": None}
+
+    messages = list(supervisor_messages)
+    old_brief_text = (old_brief or "").strip()
+
+    # Prefer exact brief match to avoid replacing unrelated human messages.
+    for index, message in enumerate(messages):
+        if _is_human_message(message) and _message_content(message) == old_brief_text:
+            messages[index] = HumanMessage(content=updated_brief)
+            return {"messages": messages, "replaced": True, "warning": None}
+
+    # Fallback: replace first human message when exact match is unavailable.
+    for index, message in enumerate(messages):
+        if _is_human_message(message):
+            messages[index] = HumanMessage(content=updated_brief)
+            return {
+                "messages": messages,
+                "replaced": True,
+                "warning": (
+                    "Steering brief replacement used fallback first human message "
+                    "because exact previous brief was not found."
+                ),
+            }
+
+    return {"messages": messages, "replaced": False, "warning": None}
+
+
+def _build_steering_interrupt_payload(
+    state: SupervisorState, configurable: Configuration
+) -> dict[str, Any]:
+    """Build the payload surfaced to the client when steering interrupts."""
+    notes = state.get("notes", [])
+    latest_notes = notes[-1] if notes else ""
+    latest_notes_excerpt = (
+        latest_notes
+        if len(latest_notes) <= 1000
+        else f"{latest_notes[:1000]}..."
+    )
+
+    return {
+        "type": "steering_checkpoint",
+        "iteration": state.get("research_iterations", 0),
+        "research_brief": state.get("research_brief", ""),
+        "latest_notes_excerpt": latest_notes_excerpt,
+        "accepted_commands": [
+            configurable.steering_continue_command,
+            f"{configurable.steering_command_prefix} <instruction>",
+        ],
+    }
+
+
+async def steering_checkpoint(
+    state: SupervisorState, config: RunnableConfig
+) -> Command[Literal["supervisor"]]:
+    """Pause for optional human steering and resume supervisor loop."""
+    configurable = Configuration.from_runnable_config(config)
+    if not configurable.enable_steering:
+        return Command(goto="supervisor")
+
+    resume_value = interrupt(_build_steering_interrupt_payload(state, configurable))
+    parsed = _parse_steering_command(
+        resume_value,
+        steering_command_prefix=configurable.steering_command_prefix,
+        steering_continue_command=configurable.steering_continue_command,
+    )
+
+    raw_command = "" if resume_value is None else str(resume_value).strip()
+    update_payload: dict[str, Any] = {"steering_last_command": raw_command}
+
+    if parsed["warning"]:
+        update_payload["steering_warnings"] = [parsed["warning"]]
+
+    if parsed["action"] == "steer" and parsed["directive"]:
+        directive = parsed["directive"]
+        old_brief = state.get("research_brief", "")
+        updated_brief = _apply_steering_directive_to_brief(old_brief, directive)
+
+        update_payload["research_brief"] = updated_brief
+        update_payload["steering_history"] = [directive]
+
+        replacement = _replace_brief_message_in_supervisor_messages(
+            state.get("supervisor_messages", []),
+            old_brief=old_brief,
+            updated_brief=updated_brief,
+        )
+        if replacement["replaced"]:
+            update_payload["supervisor_messages"] = {
+                "type": "override",
+                "value": replacement["messages"],
+            }
+            if replacement["warning"]:
+                warnings = update_payload.get("steering_warnings", [])
+                update_payload["steering_warnings"] = warnings + [replacement["warning"]]
+        else:
+            rebuilt_messages = _build_supervisor_seed_messages(
+                updated_brief, configurable
+            )
+            update_payload["supervisor_messages"] = {
+                "type": "override",
+                "value": rebuilt_messages,
+            }
+            warnings = update_payload.get("steering_warnings", [])
+            update_payload["steering_warnings"] = warnings + [
+                (
+                    "Steering brief replacement fallback: previous brief message "
+                    "not found, rebuilt supervisor context."
+                )
+            ]
+
+    return Command(goto="supervisor", update=update_payload)
 
 
 async def supervisor(
@@ -281,7 +476,7 @@ async def supervisor(
 
 async def supervisor_tools(
     state: SupervisorState, config: RunnableConfig
-) -> Command[Literal["supervisor", "__end__"]]:
+) -> Command[Literal["steering_checkpoint", "__end__"]]:
     """执行监督者调用的工具，包括研究委派和战略思考。.
 
     此函数处理三种类型的监督者工具调用：
@@ -416,17 +611,22 @@ async def supervisor_tools(
                     tool_call_id=tool_call["id"],
                 )
             )
-    # 3、更新状态，重回supervisor
+    # 3、更新状态，进入 steering checkpoint
     update_payload["supervisor_messages"] = all_tool_messages
-    return Command(goto="supervisor", update=update_payload)
+    return Command(goto="steering_checkpoint", update=update_payload)
 
 
-# Supervisor Graph构建
-supervisor_builder = StateGraph(SupervisorState, config_schema=Configuration)
-supervisor_builder.add_node("supervisor", supervisor)
-supervisor_builder.add_node("supervisor_tools", supervisor_tools)
-supervisor_builder.add_edge(START, "supervisor")
-supervisor_subgraph = supervisor_builder.compile()
+def build_supervisor_subgraph(checkpointer=None):
+    """Build and compile the supervisor subgraph."""
+    supervisor_builder = StateGraph(SupervisorState, config_schema=Configuration)
+    supervisor_builder.add_node("supervisor", supervisor)
+    supervisor_builder.add_node("supervisor_tools", supervisor_tools)
+    supervisor_builder.add_node("steering_checkpoint", steering_checkpoint)
+    supervisor_builder.add_edge(START, "supervisor")
+    return supervisor_builder.compile(checkpointer=checkpointer)
+
+
+supervisor_subgraph = build_supervisor_subgraph()
 
 # 可视化查看supervisor子图
 # print(supervisor_subgraph.get_graph().draw_ascii())
@@ -735,18 +935,22 @@ async def compress_research(state: ResearcherState, config: RunnableConfig):
     }
 
 
-# Researcher Subgraph 构建
-researcher_builder = StateGraph(
-    ResearcherState,
-    output=ResearcherOutputState,
-    config_schema=Configuration,
-)
-researcher_builder.add_node("researcher", researcher)
-researcher_builder.add_node("researcher_tools", researcher_tools)
-researcher_builder.add_node("compress_research", compress_research)
-researcher_builder.add_edge(START, "researcher")
-researcher_builder.add_edge("compress_research", END)
-researcher_subgraph = researcher_builder.compile()
+def build_researcher_subgraph():
+    """Build and compile the researcher subgraph."""
+    researcher_builder = StateGraph(
+        ResearcherState,
+        output=ResearcherOutputState,
+        config_schema=Configuration,
+    )
+    researcher_builder.add_node("researcher", researcher)
+    researcher_builder.add_node("researcher_tools", researcher_tools)
+    researcher_builder.add_node("compress_research", compress_research)
+    researcher_builder.add_edge(START, "researcher")
+    researcher_builder.add_edge("compress_research", END)
+    return researcher_builder.compile()
+
+
+researcher_subgraph = build_researcher_subgraph()
 
 # print(researcher_subgraph.get_graph().draw_ascii())
 # print(researcher_subgraph.get_graph().draw_mermaid())
@@ -834,36 +1038,29 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
     }
 
 
-# 构建Main graph
-deep_researcher_builder = StateGraph(
-    AgentState, input=AgentInputState, config_schema=Configuration
-)
+def build_deep_researcher(checkpointer=None):
+    """Build and compile the main deep researcher graph."""
+    deep_researcher_builder = StateGraph(
+        AgentState, input=AgentInputState, config_schema=Configuration
+    )
+    supervisor_graph = build_supervisor_subgraph(checkpointer=checkpointer)
 
-"""
-主图
-├── clarify_with_user
-├── write_research_brief
-├── research_supervisor (supervisor_subgraph)
-│   ├── supervisor
-│   └── supervisor_tools
-└── final_report_generation
+    deep_researcher_builder.add_node("clarify_with_user", clarify_with_user)
+    deep_researcher_builder.add_node("write_research_brief", write_research_brief)
+    deep_researcher_builder.add_node("research_supervisor", supervisor_graph)
+    deep_researcher_builder.add_node(
+        "final_report_generation", final_report_generation
+    )
 
-supervisor_tools 在运行时动态调用:
-└── researcher_subgraph
-    ├── researcher
-    ├── researcher_tools
-    └── compress_research
-"""
+    deep_researcher_builder.add_edge(START, "clarify_with_user")
+    deep_researcher_builder.add_edge(
+        "research_supervisor", "final_report_generation"
+    )
+    deep_researcher_builder.add_edge("final_report_generation", END)
 
-deep_researcher_builder.add_node("clarify_with_user", clarify_with_user)
-deep_researcher_builder.add_node("write_research_brief", write_research_brief)
-deep_researcher_builder.add_node("research_supervisor", supervisor_subgraph)
-deep_researcher_builder.add_node("final_report_generation", final_report_generation)
+    return deep_researcher_builder.compile(checkpointer=checkpointer)
 
-deep_researcher_builder.add_edge(START, "clarify_with_user")
-deep_researcher_builder.add_edge("research_supervisor", "final_report_generation")
-deep_researcher_builder.add_edge("final_report_generation", END)
 
-deep_researcher = deep_researcher_builder.compile()
+deep_researcher = build_deep_researcher()
 # print(deep_researcher.get_graph().draw_ascii())
 # print(deep_researcher.get_graph().draw_mermaid())
