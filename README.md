@@ -335,6 +335,8 @@ LANGSMITH_PROJECT=panda_dive
 ### Basic Usage
 
 ```python
+import asyncio
+
 from Panda_Dive import Configuration, deep_researcher
 from langchain_core.messages import HumanMessage
 
@@ -343,18 +345,21 @@ config = Configuration(
     max_researcher_iterations=6,
     max_concurrent_research_units=4,
     allow_clarification=True,
-    model="openai:gpt-4o"
+    research_model="openai:gpt-4o",
+    final_report_model="openai:gpt-4o",
 )
 
 # Start research
 topic = "What are the latest developments in quantum computing?"
 
-result = deep_researcher.invoke(
-    {"messages": [HumanMessage(content=topic)]},
-    config=config.to_runnable_config()
-)
+async def main() -> None:
+    result = await deep_researcher.ainvoke(
+        {"messages": [HumanMessage(content=topic)]},
+        config={"configurable": config.model_dump()},
+    )
+    print(result["messages"][-1].content)
 
-print(result["messages"][-1].content)
+asyncio.run(main())
 ```
 
 ### Running with LangSmith
@@ -414,6 +419,14 @@ This will start the development server on `http://localhost:2026` with in-memory
    - Includes citations and sources
 
 ---
+
+## 📚 Documentation
+
+- [docs/README.md](docs/README.md) - Documentation index
+- [docs/architecture.md](docs/architecture.md) - Architecture overview and component boundaries
+- [docs/evaluation-guide.md](docs/evaluation-guide.md) - Evaluation workflow and benchmark card generation
+- [docs/contributing.md](docs/contributing.md) - Contribution path and quality gates
+- [docs/future-direction.md](docs/future-direction.md) - 2026-2028 direction and phased roadmap
 
 ## 🧪 Evaluation
 

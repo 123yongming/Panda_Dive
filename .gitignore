@@ -59,5 +59,15 @@ src/test_ark_model.py
 src/test_structured_output.py
 tests/prompt/
 tests/test_parallel_eval.py
-docs/
+docs/*
+!docs/README.md
+!docs/architecture.md
+!docs/evaluation-guide.md
+!docs/contributing.md
+!docs/benchmark-card-v1.md
+!docs/phase1-acceptance.md
+!docs/roadmap.md
+!docs/plans/
+docs/plans/*
+!docs/plans/2026-03-03-phase1-implementation.md
 nul
