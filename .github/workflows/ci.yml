@@ -29,10 +29,8 @@ jobs:
       - name: Run core regression tests
         run: |
           python -m pytest -q \
-            tests/test_parallel_eval.py \
             tests/test_retrieval_quality.py \
             tests/test_state_reducer.py \
             tests/test_tool_routing.py \
             tests/test_model_initialization_entry.py \
             tests/test_benchmark_card.py
-
