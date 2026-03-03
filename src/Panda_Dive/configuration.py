@@ -175,6 +175,36 @@ class Configuration(BaseModel):
             }
         },
     )
+    enable_steering: bool = Field(
+        default=False,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "boolean",
+                "default": False,
+                "description": "Enable human-in-the-loop steering checkpoints after each supervisor round",
+            }
+        },
+    )
+    steering_command_prefix: str = Field(
+        default="/steer",
+        metadata={
+            "x_oap_ui_config": {
+                "type": "text",
+                "default": "/steer",
+                "description": "Command prefix used to provide steering instructions at checkpoint (for example: /steer focus on academic sources)",
+            }
+        },
+    )
+    steering_continue_command: str = Field(
+        default="/continue",
+        metadata={
+            "x_oap_ui_config": {
+                "type": "text",
+                "default": "/continue",
+                "description": "Command used at steering checkpoint to continue without changing direction",
+            }
+        },
+    )
     max_concurrent_research_units: int = Field(
         default=4,
         metadata={
