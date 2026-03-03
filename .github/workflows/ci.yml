@@ -1,0 +1,38 @@
+name: Phase1 CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - "**"
+
+jobs:
+  phase1-gates:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Lint core package
+        run: ruff check src/Panda_Dive
+
+      - name: Run core regression tests
+        run: |
+          python -m pytest -q \
+            tests/test_parallel_eval.py \
+            tests/test_retrieval_quality.py \
+            tests/test_state_reducer.py \
+            tests/test_tool_routing.py \
+            tests/test_model_initialization_entry.py \
+            tests/test_benchmark_card.py
+

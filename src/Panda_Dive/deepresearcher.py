@@ -4,7 +4,6 @@ import asyncio
 import logging
 from typing import Literal
 
-from langchain.chat_models import init_chat_model
 from langchain_core.messages import (
     AIMessage,
     HumanMessage,
@@ -58,11 +57,6 @@ from .utils import (
     remove_up_to_last_ai_message,
     supports_structured_output,
     think_tool,
-)
-
-# 初始化base 模型
-configurable_model = init_chat_model(
-    configurable_fields=("model", "max_tokens", "api_key"),
 )
 
 
