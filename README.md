@@ -20,6 +20,7 @@ A powerful multi-agent deep research tool built with LangGraph and LangChain. Pa
 - [Architecture](#-architecture)
 - [Installation](#-installation)
 - [Quick Start](#-quick-start)
+- [Human-in-the-loop Steering](#-human-in-the-loop-steering)
 - [Configuration](#-configuration)
 - [How It Works](#-how-it-works)
 - [Documentation](#-documentation)
@@ -69,6 +70,12 @@ Configure different models for different research stages:
 - **Relevance Scoring**: Score each result on a 0.0-1.0 scale
 - **Reranking**: Prioritize higher-quality sources before synthesis
 - **Robust Error Handling**: Graceful handling of connection issues for DuckDuckGo searches
+
+### 🧭 Human-in-the-Loop Steering (HITL)
+- **Per-Round Checkpoint**: Optional pause after each supervisor tool-execution round
+- **Two Resume Commands**: `/continue` keeps direction, `/steer <instruction>` injects new guidance
+- **Brief Replacement (No Duplication)**: Steering updates replace the previous brief message in `supervisor_messages` instead of appending duplicate briefs
+- **Audit Fields in State**: `steering_history`, `steering_last_command`, `steering_warnings`
 
 ---
 
@@ -374,6 +381,78 @@ This will start the development server on `http://localhost:2026` with in-memory
 
 ---
 
+## 🧭 Human-in-the-loop Steering
+
+Steering is opt-in and requires a checkpointer (so the graph can interrupt and resume safely).
+
+### Python API Example
+
+```python
+import asyncio
+
+from langchain_core.messages import HumanMessage
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.types import Command
+
+from Panda_Dive import Configuration, build_deep_researcher
+
+
+async def main() -> None:
+    graph = build_deep_researcher(checkpointer=InMemorySaver())
+    config = {
+        "configurable": {
+            "thread_id": "steering-demo",
+            **Configuration(
+                enable_steering=True,
+                allow_clarification=False,
+                steering_command_prefix="/steer",
+                steering_continue_command="/continue",
+            ).model_dump(),
+        }
+    }
+
+    # Start a run. The graph may interrupt at a steering checkpoint.
+    await graph.ainvoke(
+        {"messages": [HumanMessage(content="Research AI coding agents in 2026")]},
+        config=config,
+    )
+
+    # Resume with a steering directive.
+    await graph.ainvoke(
+        Command(resume="/steer prioritize official docs and benchmark-backed claims"),
+        config=config,
+    )
+
+    # Or resume without changing direction.
+    await graph.ainvoke(Command(resume="/continue"), config=config)
+
+
+asyncio.run(main())
+```
+
+### LangSmith Studio Quick Test
+
+1. Start dev server:
+
+```bash
+uvx --refresh --from "langgraph-cli[inmem]" --with-editable . --python 3.11 langgraph dev --allow-blocking --host 0.0.0.0 --port 2026
+```
+
+2. In LangSmith Studio, set configurable values:
+   - `enable_steering=true`
+   - `steering_command_prefix=/steer`
+   - `steering_continue_command=/continue`
+   - `thread_id=<any-stable-id>`
+3. Start a run, then resume from interrupt with:
+   - `/steer focus on official sources and recent papers`
+   - or `/continue`
+4. Validate state fields after resume:
+   - `research_brief` updated when using `/steer`
+   - `steering_history`, `steering_last_command`, `steering_warnings`
+   - `supervisor_messages` keeps a single brief entry (old brief is replaced, not appended)
+
+---
+
 ## ⚙️ Configuration
 
 ### Key Options
@@ -385,6 +464,9 @@ This will start the development server on `http://localhost:2026` with in-memory
 | `max_react_tool_calls` | int | `6` | Maximum tool calls per reaction (1-30) |
 | `max_concurrent_research_units` | int | `4` | Parallel research tasks (1-20) |
 | `allow_clarification` | bool | `True` | Ask clarifying questions before research |
+| `enable_steering` | bool | `False` | Enable per-round human steering checkpoints in supervisor loop |
+| `steering_command_prefix` | str | `"/steer"` | Command prefix for steering directives |
+| `steering_continue_command` | str | `"/continue"` | Command to continue without modifying the brief |
 | `model` | str | `"openai:gpt-4o"` | Default model for research |
 | `query_variants` | int | `3` | Number of query variants for retrieval quality |
 | `relevance_threshold` | float | `0.7` | Minimum relevance score threshold |
@@ -410,11 +492,16 @@ This will start the development server on `http://localhost:2026` with in-memory
    - Multiple researcher agents work in parallel
    - Each researcher explores their assigned subtopic
 
-4. **Research Synthesis**
+4. **Steering Checkpoint** (Optional)
+   - Interrupts after each supervisor tool round when `enable_steering=True`
+   - Accepts `/steer <instruction>` or `/continue`
+   - If steered, updates `research_brief` and replaces old brief message in supervisor context
+
+5. **Research Synthesis**
    - Compresses individual findings to fit context
    - Synthesizes cross-cutting insights
 
-5. **Final Report**
+6. **Final Report**
    - Generates comprehensive, well-structured report
    - Includes citations and sources
 
