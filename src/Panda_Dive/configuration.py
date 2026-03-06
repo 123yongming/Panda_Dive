@@ -219,6 +219,310 @@ class Configuration(BaseModel):
         },
     )
 
+    # Memory and context config
+    memory_enabled: bool = Field(
+        default=False,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "boolean",
+                "default": False,
+                "description": "Enable long-term memory extraction, retrieval, and injection.",
+            }
+        },
+    )
+    memory_namespace_template: str = Field(
+        default="memory.owner.{owner}",
+        metadata={
+            "x_oap_ui_config": {
+                "type": "text",
+                "default": "memory.owner.{owner}",
+                "description": (
+                    "Dot-delimited namespace template for memory persistence and retrieval. "
+                    "Supported variables: {owner}, {thread_id}, {topic_hash}."
+                ),
+            }
+        },
+    )
+    memory_confidence_threshold: float = Field(
+        default=0.75,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "number",
+                "default": 0.75,
+                "min": 0.0,
+                "max": 1.0,
+                "step": 0.05,
+                "description": "Minimum confidence required for writing memory facts.",
+            }
+        },
+    )
+    memory_novelty_threshold: float = Field(
+        default=0.30,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "number",
+                "default": 0.30,
+                "min": 0.0,
+                "max": 1.0,
+                "step": 0.05,
+                "description": "Minimum novelty required for memory fact acceptance.",
+            }
+        },
+    )
+    memory_retrieval_top_k: int = Field(
+        default=8,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "number",
+                "default": 8,
+                "min": 1,
+                "max": 50,
+                "step": 1,
+                "description": "Top-K memory facts to retrieve before prompt injection.",
+            }
+        },
+    )
+    memory_max_injection_tokens: int = Field(
+        default=1200,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "number",
+                "default": 1200,
+                "min": 100,
+                "max": 4000,
+                "step": 50,
+                "description": "Maximum token budget for memory injection block.",
+            }
+        },
+    )
+    memory_recency_half_life_days: int = Field(
+        default=14,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "number",
+                "default": 14,
+                "min": 1,
+                "max": 365,
+                "step": 1,
+                "description": "Half-life (days) used in memory recency decay ranking.",
+            }
+        },
+    )
+    memory_require_citations: bool = Field(
+        default=True,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "boolean",
+                "default": True,
+                "description": "Require source URLs for accepting new memory facts.",
+            }
+        },
+    )
+    memory_max_facts_per_namespace: int = Field(
+        default=500,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "number",
+                "default": 500,
+                "min": 50,
+                "max": 5000,
+                "step": 50,
+                "description": "Maximum number of facts allowed per memory namespace.",
+            }
+        },
+    )
+    memory_backend: str = Field(
+        default="sqlite",
+        metadata={
+            "x_oap_ui_config": {
+                "type": "select",
+                "default": "sqlite",
+                "description": "Storage backend for long-term memory.",
+                "options": [
+                    {"label": "SQLite", "value": "sqlite"},
+                    {"label": "LangGraph Runtime Store", "value": "langgraph_store"},
+                ],
+            }
+        },
+    )
+    memory_sqlite_path: str = Field(
+        default=".memory/memory.sqlite3",
+        metadata={
+            "x_oap_ui_config": {
+                "type": "text",
+                "default": ".memory/memory.sqlite3",
+                "description": "SQLite database path for long-term memory.",
+            }
+        },
+    )
+    memory_sqlite_journal_mode: str = Field(
+        default="WAL",
+        metadata={
+            "x_oap_ui_config": {
+                "type": "select",
+                "default": "WAL",
+                "description": "SQLite journal mode.",
+                "options": [
+                    {"label": "WAL", "value": "WAL"},
+                    {"label": "DELETE", "value": "DELETE"},
+                ],
+            }
+        },
+    )
+    memory_sqlite_busy_timeout_ms: int = Field(
+        default=5000,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "number",
+                "default": 5000,
+                "min": 100,
+                "max": 60000,
+                "step": 100,
+                "description": "SQLite busy timeout in milliseconds.",
+            }
+        },
+    )
+    memory_search_candidates: int = Field(
+        default=200,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "number",
+                "default": 200,
+                "min": 20,
+                "max": 5000,
+                "step": 10,
+                "description": "Candidate count for lexical BM25 recall.",
+            }
+        },
+    )
+    memory_ann_enabled: bool = Field(
+        default=True,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "boolean",
+                "default": True,
+                "description": "Enable ANN vector retrieval when vectorlite extension is available.",
+            }
+        },
+    )
+    memory_ann_max_elements: int = Field(
+        default=200000,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "number",
+                "default": 200000,
+                "min": 1000,
+                "max": 2000000,
+                "step": 1000,
+                "description": "Maximum elements for vectorlite HNSW index.",
+            }
+        },
+    )
+    memory_ann_candidates: int = Field(
+        default=200,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "number",
+                "default": 200,
+                "min": 10,
+                "max": 5000,
+                "step": 10,
+                "description": "Top candidate count retrieved from ANN/linear vector search.",
+            }
+        },
+    )
+    memory_rrf_k: int = Field(
+        default=60,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "number",
+                "default": 60,
+                "min": 1,
+                "max": 200,
+                "step": 1,
+                "description": "RRF rank constant (1 / (k + rank)).",
+            }
+        },
+    )
+    memory_rrf_candidate_max: int = Field(
+        default=400,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "number",
+                "default": 400,
+                "min": 20,
+                "max": 10000,
+                "step": 10,
+                "description": "Maximum candidates kept per retrieval channel before RRF fusion.",
+            }
+        },
+    )
+    memory_embedding_enabled: bool = Field(
+        default=True,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "boolean",
+                "default": True,
+                "description": "Enable embedding-based vector reranking for memory retrieval.",
+            }
+        },
+    )
+    memory_embedding_provider: str = Field(
+        default="siliconflow_openai_compatible",
+        metadata={
+            "x_oap_ui_config": {
+                "type": "text",
+                "default": "siliconflow_openai_compatible",
+                "description": "Embedding provider type for memory vector reranking.",
+            }
+        },
+    )
+    memory_embedding_model: str = Field(
+        default="BAAI/bge-m3",
+        metadata={
+            "x_oap_ui_config": {
+                "type": "text",
+                "default": "BAAI/bge-m3",
+                "description": "Embedding model name for memory vector reranking.",
+            }
+        },
+    )
+    memory_embedding_base_url: str = Field(
+        default="https://api.siliconflow.cn/v1",
+        metadata={
+            "x_oap_ui_config": {
+                "type": "text",
+                "default": "https://api.siliconflow.cn/v1",
+                "description": "Embedding API base URL.",
+            }
+        },
+    )
+    memory_embedding_api_key: str | None = Field(
+        default=None,
+        optional=True,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "text",
+                "description": "Embedding API key. Prefer setting via environment variable.",
+            }
+        },
+    )
+    memory_vector_weight: float = Field(
+        default=0.6,
+        ge=0.0,
+        le=1.0,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "number",
+                "default": 0.6,
+                "min": 0.0,
+                "max": 1.0,
+                "step": 0.05,
+                "description": "Deprecated. Kept for backward compatibility; ignored by RRF retrieval.",
+            }
+        },
+    )
+
     # Model Configuration
     summarization_model: str = Field(
         default="deepseek-chat",
@@ -320,12 +624,15 @@ class Configuration(BaseModel):
         """Extract Configuration from RunnableConfig."""
         configuration = config.get("configurable", {}) if config else {}
         field_names = list(cls.model_fields.keys())
-        values: dict[str, Any] = {
-            field_name: os.environ.get(
-                field_name.upper(), configuration.get(field_name)
-            )
-            for field_name in field_names
-        }
+        values: dict[str, Any] = {}
+        for field_name in field_names:
+            configured_value = configuration.get(field_name)
+            if configured_value is not None:
+                values[field_name] = configured_value
+                continue
+            env_value = os.environ.get(field_name.upper())
+            if env_value is not None:
+                values[field_name] = env_value
         return cls(**{k: v for k, v in values.items() if v is not None})
 
     class Config:
