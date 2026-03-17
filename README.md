@@ -77,6 +77,12 @@ Configure different models for different research stages:
 - **Brief Replacement (No Duplication)**: Steering updates replace the previous brief message in `supervisor_messages` instead of appending duplicate briefs
 - **Audit Fields in State**: `steering_history`, `steering_last_command`, `steering_warnings`
 
+### Long-Term Memory
+- **Persistent Research Memory**: Optionally store reusable facts and episodic summaries across runs
+- **Prompt Injection**: Retrieve relevant memory and inject it into the supervisor brief before research begins
+- **Namespace Isolation**: Partition memory by `owner`, `thread_id`, and `topic_hash`
+- **SQLite by Default**: Persist memory locally with configurable retrieval and ranking controls
+
 ---
 
 ## 🆕 Recent Updates
@@ -84,6 +90,7 @@ Configure different models for different research stages:
 - Added a polished local frontend demo view for Panda_Dive research workflows
 - Added a complete sample context research report for quick output reference
 - Updated README with visual showcase and direct links to example assets
+- Added langmem-backed long-term memory with persistence, retrieval, and prompt injection support
 
 ---
 
@@ -369,6 +376,20 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
+### Enable Long-Term Memory
+
+```python
+config = Configuration(
+    memory_enabled=True,
+    memory_backend="sqlite",
+    memory_sqlite_path=".memory/memory.sqlite3",
+    memory_namespace_template="memory.owner.{owner}",
+    memory_retrieval_top_k=8,
+)
+```
+
+When memory is enabled, Panda_Dive persists extracted memory items and retrieves relevant context for later research runs.
+
 ### Running with LangSmith
 
 You can also run Panda_Dive as a LangGraph development server:
@@ -467,6 +488,11 @@ uvx --refresh --from "langgraph-cli[inmem]" --with-editable . --python 3.11 lang
 | `enable_steering` | bool | `False` | Enable per-round human steering checkpoints in supervisor loop |
 | `steering_command_prefix` | str | `"/steer"` | Command prefix for steering directives |
 | `steering_continue_command` | str | `"/continue"` | Command to continue without modifying the brief |
+| `memory_enabled` | bool | `False` | Enable long-term memory extraction, retrieval, and injection |
+| `memory_backend` | str | `"sqlite"` | Memory backend: `sqlite` or `langgraph_store` |
+| `memory_sqlite_path` | str | `".memory/memory.sqlite3"` | SQLite path for persisted memory data |
+| `memory_namespace_template` | str | `"memory.owner.{owner}"` | Namespace template supporting `{owner}`, `{thread_id}`, and `{topic_hash}` |
+| `memory_retrieval_top_k` | int | `8` | Number of memory facts retrieved before prompt injection |
 | `model` | str | `"openai:gpt-4o"` | Default model for research |
 | `query_variants` | int | `3` | Number of query variants for retrieval quality |
 | `relevance_threshold` | float | `0.7` | Minimum relevance score threshold |
