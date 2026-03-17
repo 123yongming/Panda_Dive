@@ -9,7 +9,8 @@ readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
 dependencies = [
-    "langgraph>=0.5.4",
+    "langgraph>=0.6.0,<2",
+    "langchain>=0.3.15",
     "langchain-community>=0.3.9",
     "langchain-openai>=0.3.28",
     "langchain-anthropic>=0.3.15",
@@ -26,6 +27,7 @@ dependencies = [
     "ddgs>=1.0.0",
     "exa-py>=1.8.8",
     "requests>=2.32.3",
+    "vectorlite-py>=0.2.0",
     "beautifulsoup4==4.13.3",
     "python-dotenv>=1.0.1",
     "pytest",
@@ -44,6 +46,8 @@ dependencies = [
     "mcp>=1.9.4",
     "langchain-aws>=0.2.28",
     "pandas>=2.3.1",
+    "langmem>=0.0.30",
+    "trustcall>=0.0.39",
 ]
 
 [project.optional-dependencies]

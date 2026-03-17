@@ -17,6 +17,11 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 
 from .configuration import Configuration
+from .memory import (
+    persist_final_report_memory,
+    persist_research_memory,
+    retrieve_memory_for_prompt,
+)
 from .prompts import (
     clarify_with_user_instructions,
     compress_research_simple_human_message,
@@ -216,16 +221,36 @@ async def write_research_brief(
                 str(response.content) if hasattr(response, "content") else str(response)
             )
 
+    memory_block = ""
+    if configurable.memory_enabled:
+        try:
+            _, memory_block = await retrieve_memory_for_prompt(
+                query=research_brief,
+                task_context=research_brief,
+                config=config,
+                topic=research_brief,
+            )
+        except Exception:
+            logging.exception("write_research_brief: failed to retrieve memory context")
+
     # 4、使用研究简报初始化supervisor模型
+    update_payload: dict[str, Any] = {
+        "research_brief": research_brief,
+        "supervisor_messages": {
+            "type": "override",
+            "value": _build_supervisor_seed_messages(
+                research_brief,
+                configurable,
+                memory_block=memory_block,
+            ),
+        },
+    }
+    if memory_block:
+        update_payload["memory_context"] = [memory_block]
+
     return Command(
         goto="research_supervisor",
-        update={
-            "research_brief": research_brief,
-            "supervisor_messages": {
-                "type": "override",
-                "value": _build_supervisor_seed_messages(research_brief, configurable),
-            },
-        },
+        update=update_payload,
     )
 
 
@@ -298,8 +323,35 @@ def _is_human_message(message: Any) -> bool:
     return str(getattr(message, "type", "")).lower() == "human"
 
 
+def build_supervisor_messages_with_memory(
+    supervisor_messages: list[Any],
+    memory_block: str,
+) -> list[Any]:
+    """Build a model-input supervisor message list with memory block injected."""
+    if not supervisor_messages:
+        return []
+    if not memory_block:
+        return list(supervisor_messages)
+
+    messages = list(supervisor_messages)
+    first_message = messages[0]
+    first_content = _message_content(first_message)
+    if memory_block in first_content:
+        return messages
+
+    if isinstance(first_message, dict):
+        updated_first = dict(first_message)
+        updated_first["content"] = f"{first_content}\n\n{memory_block}"
+        messages[0] = updated_first
+        return messages
+    messages[0] = SystemMessage(content=f"{first_content}\n\n{memory_block}")
+    return messages
+
+
 def _build_supervisor_seed_messages(
-    research_brief: str, configurable: Configuration
+    research_brief: str,
+    configurable: Configuration,
+    memory_block: str | None = None,
 ) -> list[Any]:
     """Build minimal supervisor context with system prompt and brief."""
     supervisor_system_prompt = lead_researcher_prompt.format(
@@ -307,6 +359,8 @@ def _build_supervisor_seed_messages(
         max_concurrent_research_units=configurable.max_concurrent_research_units,
         max_researcher_iterations=configurable.max_researcher_iterations,
     )
+    if memory_block:
+        supervisor_system_prompt = f"{supervisor_system_prompt}\n\n{memory_block}"
     return [
         SystemMessage(content=supervisor_system_prompt),
         HumanMessage(content=research_brief),
@@ -414,8 +468,11 @@ async def steering_checkpoint(
                 warnings = update_payload.get("steering_warnings", [])
                 update_payload["steering_warnings"] = warnings + [replacement["warning"]]
         else:
+            memory_context = state.get("memory_context", [])
             rebuilt_messages = _build_supervisor_seed_messages(
-                updated_brief, configurable
+                updated_brief,
+                configurable,
+                memory_block=memory_context[-1] if memory_context else None,
             )
             update_payload["supervisor_messages"] = {
                 "type": "override",
@@ -463,14 +520,33 @@ async def supervisor(
     )
     # 2、调用模型
     supervisor_messages = state.get("supervisor_messages", [])
-    response = await research_model.ainvoke(supervisor_messages)
+    memory_block = ""
+    if configurable.memory_enabled:
+        try:
+            query = state.get("research_brief", "")
+            task_context = "\n".join(state.get("notes", [])[-2:]) or query
+            _, memory_block = await retrieve_memory_for_prompt(
+                query=query,
+                task_context=task_context,
+                config=config,
+                topic=query,
+            )
+        except Exception:
+            logging.exception("supervisor: failed to retrieve memory context")
+    response = await research_model.ainvoke(
+        build_supervisor_messages_with_memory(supervisor_messages, memory_block)
+    )
     # 3、更新状态以及执行工具
+    update_payload: dict[str, Any] = {
+        "supervisor_messages": [response],
+        "research_iterations": state.get("research_iterations", 0) + 1,
+    }
+    if memory_block:
+        update_payload["memory_context"] = [memory_block]
+
     return Command(
         goto="supervisor_tools",
-        update={
-            "supervisor_messages": [response],
-            "research_iterations": state.get("research_iterations", 0) + 1,
-        },
+        update=update_payload,
     )
 
 
@@ -664,6 +740,26 @@ async def researcher(
     researcher_prompt = research_system_prompt.format(
         mcp_prompt=configurable.mcp_prompt or "", date=get_today_str()
     )
+    memory_block = ""
+    if configurable.memory_enabled:
+        try:
+            query = state.get("research_topic", "")
+            recent_context = (
+                get_buffer_string(researcher_messages[-4:])
+                if researcher_messages
+                else query
+            )
+            _, memory_block = await retrieve_memory_for_prompt(
+                query=query,
+                task_context=recent_context,
+                config=config,
+                topic=query,
+            )
+        except Exception:
+            logging.exception("researcher: failed to retrieve memory context")
+    if memory_block:
+        researcher_prompt = f"{researcher_prompt}\n\n{memory_block}"
+
     research_model = (
         create_chat_model(
             model_name=configurable.research_model,
@@ -678,12 +774,15 @@ async def researcher(
     # 3、生成research回复
     messages = [SystemMessage(content=researcher_prompt)] + researcher_messages
     response = await research_model.ainvoke(messages)
+    update_payload: dict[str, Any] = {
+        "researcher_messages": [response],
+        "tool_call_iterations": state.get("tool_call_iterations", 0) + 1,
+    }
+    if memory_block:
+        update_payload["memory_context"] = [memory_block]
     return Command(
         goto="researcher_tools",
-        update={
-            "researcher_messages": [response],
-            "tool_call_iterations": state.get("tool_call_iterations", 0) + 1,
-        },
+        update=update_payload,
     )
 
 
@@ -909,6 +1008,21 @@ async def compress_research(state: ResearcherState, config: RunnableConfig):
                     )
                 ]
             )
+            if configurable.memory_enabled:
+                try:
+                    thread_id = str(
+                        config.get("configurable", {}).get("thread_id")
+                        or f"thread-{get_today_str()}"
+                    )
+                    await persist_research_memory(
+                        topic=state.get("research_topic", ""),
+                        compressed_research=str(response.content),
+                        raw_notes=raw_notes_content,
+                        config=config,
+                        source_run_id=thread_id,
+                    )
+                except Exception:
+                    logging.exception("compress_research: memory persistence failed")
             return {
                 "compressed_research": str(response.content),
                 "raw_notes": [raw_notes_content],
@@ -994,6 +1108,17 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
             final_report = await writer_model.ainvoke(
                 [HumanMessage(content=final_report_prompt)]
             )
+            if configurable.memory_enabled:
+                await persist_final_report_memory(
+                    report_text=str(final_report.content),
+                    notes=notes,
+                    topic=state.get("research_brief", ""),
+                    config=config,
+                    source_run_id=str(
+                        config.get("configurable", {}).get("thread_id")
+                        or f"thread-{get_today_str()}"
+                    ),
+                )
             return {
                 "final_report": final_report.content,
                 "messages": [final_report],

@@ -1,7 +1,7 @@
 """定义状态节点以及structured数据."""
 
 import operator
-from typing import Annotated
+from typing import Annotated, Any
 
 from langchain_core.messages import MessageLikeRepresentation
 from langgraph.graph import MessagesState
@@ -41,6 +41,9 @@ class AgentState(MessagesState):
     steering_history: Annotated[list[str], override_reducer] = []
     steering_last_command: str | None = None
     steering_warnings: Annotated[list[str], override_reducer] = []
+    memory_context: Annotated[list[str], override_reducer] = []
+    memory_candidates: Annotated[list[dict[str, Any]], override_reducer] = []
+    memory_warnings: Annotated[list[str], override_reducer] = []
     final_report: str
 
 
@@ -55,6 +58,9 @@ class SupervisorState(MessagesState):
     steering_history: Annotated[list[str], override_reducer] = []
     steering_last_command: str | None = None
     steering_warnings: Annotated[list[str], override_reducer] = []
+    memory_context: Annotated[list[str], override_reducer] = []
+    memory_candidates: Annotated[list[dict[str, Any]], override_reducer] = []
+    memory_warnings: Annotated[list[str], override_reducer] = []
 
 
 class ResearcherState(MessagesState):
@@ -69,6 +75,9 @@ class ResearcherState(MessagesState):
     relevance_scores: Annotated[list[dict[str, float]], override_reducer] = []
     reranked_results: Annotated[list[str], override_reducer] = []
     quality_notes: Annotated[list[str], override_reducer] = []
+    memory_context: Annotated[list[str], override_reducer] = []
+    memory_candidates: Annotated[list[dict[str, Any]], override_reducer] = []
+    memory_warnings: Annotated[list[str], override_reducer] = []
 
 
 class ResearcherOutputState(MessagesState):
